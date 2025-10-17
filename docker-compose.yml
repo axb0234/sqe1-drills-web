@@ -1,0 +1,18 @@
+services:
+  web:
+    build: ./web
+    container_name: sqe1-web
+    environment:
+      - NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME}
+      - NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
+      - NEXT_PUBLIC_AUTH_ISSUER=${NEXT_PUBLIC_AUTH_ISSUER}
+      - NEXT_PUBLIC_AUTH_CLIENT_ID=${NEXT_PUBLIC_AUTH_CLIENT_ID}
+      - SUBSCRIPTION_GUARD_ENABLED=${SUBSCRIPTION_GUARD_ENABLED:-0}
+    ports:
+      - "3000:3000"
+    networks:
+      - sqe1prep_default
+
+networks:
+  sqe1prep_default:
+    external: true
