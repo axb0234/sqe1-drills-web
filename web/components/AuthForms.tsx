@@ -4,17 +4,29 @@ import { useContext, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthContext } from './AuthProvider';
 
+// in web/components/AuthForms.tsx
 async function loginViaKeycloak(idpHint?: string) {
-  const { getKeycloak } = await import('../lib/kc'); // dynamic import = only in browser
-  const kc = getKeycloak();
-  kc.login(idpHint ? { idpHint } : undefined);       // adds PKCE automatically
+  try {
+    const { getKeycloak } = await import('../lib/kc');
+    const kc = getKeycloak();
+    kc.login(idpHint ? { idpHint } : undefined);
+  } catch (e) {
+    console.error(e);
+    alert('Login setup failure. Please try again or contact support.');
+  }
 }
 
 async function registerViaKeycloak() {
-  const { getKeycloak } = await import('../lib/kc');
-  const kc = getKeycloak();
-  kc.register();                                     // PKCE handled by SDK
+  try {
+    const { getKeycloak } = await import('../lib/kc');
+    const kc = getKeycloak();
+    kc.register();
+  } catch (e) {
+    console.error(e);
+    alert('Registration setup failure. Please try again or contact support.');
+  }
 }
+
 
 export function LoginForm() {
   const router = useRouter();
