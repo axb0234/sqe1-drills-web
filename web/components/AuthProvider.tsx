@@ -11,6 +11,8 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const kc = getKeycloak();
+    if (!kc) { setState({ ready: true, authenticated: false }); return; }
+
     kc.init({
       onLoad: 'check-sso',
       pkceMethod: 'S256',

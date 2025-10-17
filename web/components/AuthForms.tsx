@@ -3,36 +3,24 @@
 import { useContext, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthContext } from './AuthProvider';
+import { getKeycloak } from '../lib/kc';
 
-// in web/components/AuthForms.tsx
-async function loginViaKeycloak(idpHint?: string) {
-  try {
-    const { getKeycloak } = await import('../lib/kc');
-    const kc = getKeycloak();
-    kc.login(idpHint ? { idpHint } : undefined);
-  } catch (e) {
-    console.error(e);
-    alert('Login setup failure. Please try again or contact support.');
-  }
+function doLogin(idpHint?: string) {
+  const kc = getKeycloak();
+  if (!kc) { alert('Auth is loading. Please try again.'); return; }
+  kc.login(idpHint ? { idpHint } : undefined);  // PKCE handled automatically
 }
 
-async function registerViaKeycloak() {
-  try {
-    const { getKeycloak } = await import('../lib/kc');
-    const kc = getKeycloak();
-    kc.register();
-  } catch (e) {
-    console.error(e);
-    alert('Registration setup failure. Please try again or contact support.');
-  }
+function doRegister() {
+  const kc = getKeycloak();
+  if (!kc) { alert('Auth is loading. Please try again.'); return; }
+  kc.register();
 }
-
 
 export function LoginForm() {
   const router = useRouter();
   const { ready, authenticated } = useContext(AuthContext);
 
-  // if already logged in, jump to dashboard
   useEffect(() => {
     if (ready && authenticated) router.replace('/dashboard');
   }, [ready, authenticated, router]);
@@ -42,7 +30,7 @@ export function LoginForm() {
       <div className="mb-3">
         <button
           className="btn btn-primary w-100 d-flex align-items-center justify-content-center gap-2"
-          onClick={() => loginViaKeycloak()}
+          onClick={() => doLogin()}
         >
           <i className="fa-solid fa-right-to-bracket" />
           <span>Login</span>
@@ -54,14 +42,14 @@ export function LoginForm() {
       <div className="d-grid gap-2">
         <button
           className="btn btn-outline-secondary d-flex align-items-center justify-content-center gap-2"
-          onClick={() => loginViaKeycloak('google')}   // IdP alias must match Keycloak
+          onClick={() => doLogin('google')}
         >
           <i className="fa-brands fa-google" />
           <span>Login with Google</span>
         </button>
         <button
           className="btn btn-outline-secondary d-flex align-items-center justify-content-center gap-2"
-          onClick={() => loginViaKeycloak('microsoft')} // IdP alias must match Keycloak
+          onClick={() => doLogin('microsoft')}
         >
           <i className="fa-brands fa-microsoft" />
           <span>Login with Microsoft</span>
@@ -80,7 +68,7 @@ export function RegisterForm() {
     <div className="d-grid">
       <button
         className="btn btn-success w-100 d-flex align-items-center justify-content-center gap-2"
-        onClick={() => registerViaKeycloak()}
+        onClick={() => doRegister()}
       >
         <i className="fa-solid fa-user-plus" />
         <span>Create account</span>
