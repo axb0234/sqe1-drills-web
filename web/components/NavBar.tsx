@@ -1,20 +1,39 @@
 'use client';
+
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useContext, useMemo } from 'react';
+import { AuthContext } from './AuthProvider';
+
+/** Build Keycloak endpoints (no SDK needed) */
+function kcCfg() {
+  const issuer = process.env.NEXT_PUBLIC_AUTH_ISSUER; // e.g. https://auth.sqe1prep.com/realms/sqe
+  const clientId =
+    process.env.NEXT_PUBLIC_AUTH_CLIENT_ID ??
+    process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID ??
+    'web';
+
+  if (issuer) {
+    const base = issuer.replace(/\/realms\/[^/]+\/?$/, '');
+    const m = issuer.match(/\/realms\/([^/]+)\/?$/);
+    return { base, realm: m?.[1] || 'sqe', clientId };
+  }
+  return {
+    base: process.env.NEXT_PUBLIC_KEYCLOAK_URL || 'https://auth.sqe1prep.com',
+    realm: process.env.NEXT_PUBLIC_KEYCLOAK_REALM || 'sqe',
+    clientId,
+  };
+}
 
 export default function NavBar() {
-  const [authed, setAuthed] = useState(false);
-
-  useEffect(() => {
-    const t = () => setAuthed(typeof window !== 'undefined' && localStorage.getItem('auth') === '1');
-    t();
-    window.addEventListener('storage', t);
-    return () => window.removeEventListener('storage', t);
-  }, []);
+  const { authenticated } = useContext(AuthContext);
+  const { base, realm, clientId } = useMemo(kcCfg, []);
 
   const logout = () => {
-    localStorage.removeItem('auth');
-    window.location.href = '/';
+    // RP-initiated front-channel logout via Keycloak
+    const u = new URL(`${base}/realms/${realm}/protocol/openid-connect/logout`);
+    u.searchParams.set('client_id', String(clientId));
+    u.searchParams.set('post_logout_redirect_uri', `${window.location.origin}/`);
+    window.location.href = u.toString();
   };
 
   return (
@@ -31,32 +50,34 @@ export default function NavBar() {
         </button>
 
         <div className="collapse navbar-collapse" id="nav">
-          <ul className="navbar-nav me-auto mb-2 mb-lg-0">
-            <li className="nav-item">
-              <Link className="nav-link d-flex align-items-center gap-2" href="/dashboard">
-                <i className="fa-solid fa-gauge"></i> <span>Dashboard</span>
-              </Link>
-            </li>
-            <li className="nav-item">
-              <Link className="nav-link d-flex align-items-center gap-2" href="/start">
-                <i className="fa-solid fa-circle-play"></i> <span>Start Drill</span>
-              </Link>
-            </li>
-            <li className="nav-item">
-              <Link className="nav-link d-flex align-items-center gap-2" href="/billing">
-                <i className="fa-solid fa-credit-card"></i> <span>Billing</span>
-              </Link>
-            </li>
-          </ul>
+          {authenticated && (
+            <ul className="navbar-nav me-auto mb-2 mb-lg-0">
+              <li className="nav-item">
+                <Link className="nav-link d-flex align-items-center gap-2" href="/dashboard">
+                  <i className="fa-solid fa-gauge"></i> <span>Dashboard</span>
+                </Link>
+              </li>
+              <li className="nav-item">
+                <Link className="nav-link d-flex align-items-center gap-2" href="/start">
+                  <i className="fa-solid fa-circle-play"></i> <span>Start Drill</span>
+                </Link>
+              </li>
+              <li className="nav-item">
+                <Link className="nav-link d-flex align-items-center gap-2" href="/billing">
+                  <i className="fa-solid fa-credit-card"></i> <span>Billing</span>
+                </Link>
+              </li>
+            </ul>
+          )}
 
-          <div className="d-flex gap-2">
-            {!authed ? (
+          <div className="ms-auto d-flex gap-2">
+            {!authenticated ? (
               <Link className="btn btn-outline-primary d-flex align-items-center gap-2" href="/login">
                 <i className="fa-solid fa-right-to-bracket"></i> <span>Sign in</span>
               </Link>
             ) : (
               <button className="btn btn-outline-secondary d-flex align-items-center gap-2" onClick={logout}>
-                <i className="fa-solid fa-right-from-bracket"></i> <span>Logout</span>
+                <i className="fa-solid fa-right-from-bracket"></i> <span>Sign out</span>
               </button>
             )}
           </div>
