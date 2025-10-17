@@ -6,6 +6,7 @@ import { ReactNode } from 'react';
 
 import NavBar from '../components/NavBar';
 import Footer from '../components/Footer';
+import Providers from '../components/Providers';
 
 export const metadata: Metadata = {
   title: 'SQE1 Drills',
