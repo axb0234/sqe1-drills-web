@@ -1,10 +1,9 @@
 'use client';
 
 import { createContext, useEffect, useState, ReactNode } from 'react';
-import { getKeycloak, kcInitOptions } from '../lib/kc';
+import { getKeycloak } from '../lib/kc';
 
 type AuthState = { ready: boolean; authenticated: boolean };
-
 export const AuthContext = createContext<AuthState>({ ready: false, authenticated: false });
 
 export default function AuthProvider({ children }: { children: ReactNode }) {
@@ -12,9 +11,13 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const kc = getKeycloak();
-    kc.init(kcInitOptions)
-      .then(authenticated => {
-        // auto refresh
+    kc.init({
+      onLoad: 'check-sso',
+      pkceMethod: 'S256',
+      checkLoginIframe: false,
+      redirectUri: window.location.origin + '/oauth/callback',
+    })
+      .then((authenticated) => {
         kc.onTokenExpired = async () => {
           try { await kc.updateToken(30); } catch { kc.login(); }
         };
