@@ -1,25 +1,25 @@
 'use client';
 
-import Keycloak, { KeycloakInitOptions } from 'keycloak-js';
+import Keycloak from 'keycloak-js';
+
+function req(name: string): string {
+  const v = process.env[name];
+  if (!v || v.trim() === '') {
+    // Helpful error if someone builds without the required envs
+    throw new Error(`Missing required env: ${name}`);
+  }
+  return v;
+}
 
 let instance: Keycloak | null = null;
 
 export function getKeycloak() {
   if (!instance) {
     instance = new Keycloak({
-      url: process.env.NEXT_PUBLIC_KEYCLOAK_URL,
-      realm: process.env.NEXT_PUBLIC_KEYCLOAK_REALM!,
-      clientId: process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID!,
+      url: req('NEXT_PUBLIC_KEYCLOAK_URL'),
+      realm: req('NEXT_PUBLIC_KEYCLOAK_REALM'),
+      clientId: req('NEXT_PUBLIC_KEYCLOAK_CLIENT_ID'),
     });
   }
   return instance;
 }
-
-export const kcInitOptions: KeycloakInitOptions = {
-  onLoad: 'check-sso',
-  pkceMethod: 'S256',
-  checkLoginIframe: false,
-  redirectUri: typeof window !== 'undefined'
-    ? window.location.origin + '/oauth/callback'
-    : undefined,
-};
