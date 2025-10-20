@@ -27,17 +27,10 @@ export default function NavBar() {
   const { authenticated } = useContext(AuthContext);
   const { base, realm, clientId } = useMemo(kcCfg, []);
 
-  const logout = () => {
-    // clear UI flag first
-    sessionStorage.removeItem('kc-auth');
-    localStorage.removeItem('kc-auth');
+const logout = () => {
+  window.location.href = '/api/auth/logout';
+};
 
-    // RP-initiated logout at Keycloak then back home
-    const u = new URL(`${base}/realms/${realm}/protocol/openid-connect/logout`);
-    u.searchParams.set('client_id', String(clientId));
-    u.searchParams.set('post_logout_redirect_uri', `${window.location.origin}/`);
-    window.location.href = u.toString();
-  };
 
   return (
     <nav className="navbar navbar-expand-lg bg-white border-bottom">
