@@ -1,36 +1,37 @@
 'use client';
 
 import Link from 'next/link';
-import { useContext, useMemo } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { AuthContext } from './AuthProvider';
 
-function kcCfg() {
-  const issuer = process.env.NEXT_PUBLIC_AUTH_ISSUER;
-  const clientId =
-    process.env.NEXT_PUBLIC_AUTH_CLIENT_ID ??
-    process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID ??
-    'web';
-
-  if (issuer) {
-    const base = issuer.replace(/\/realms\/[^/]+\/?$/, '');
-    const m = issuer.match(/\/realms\/([^/]+)\/?$/);
-    return { base, realm: m?.[1] || 'sqe', clientId };
-  }
-  return {
-    base: process.env.NEXT_PUBLIC_KEYCLOAK_URL || 'https://auth.sqe1prep.com',
-    realm: process.env.NEXT_PUBLIC_KEYCLOAK_REALM || 'sqe',
-    clientId,
-  };
+function readCookieAuth() {
+  if (typeof document === 'undefined') return false;
+  return document.cookie.includes('sqe_user=');
 }
 
 export default function NavBar() {
-  const { authenticated } = useContext(AuthContext);
-  const { base, realm, clientId } = useMemo(kcCfg, []);
+  const { authenticated: ctxAuthed } = useContext(AuthContext);
+  const [cookieAuthed, setCookieAuthed] = useState<boolean>(readCookieAuth());
 
-const logout = () => {
-  window.location.href = '/api/auth/logout';
-};
+  useEffect(() => {
+    const t = () => setCookieAuthed(readCookieAuth());
+    t();
+    const onVis = () => document.visibilityState === 'visible' && t();
+    window.addEventListener('visibilitychange', onVis);
+    const i = setInterval(t, 1000); // very light polling to avoid race during first paint
+    return () => { window.removeEventListener('visibilitychange', onVis); clearInterval(i); };
+  }, []);
 
+  const isAuthed = ctxAuthed || cookieAuthed;
+
+  // DEBUG
+  useEffect(() => {
+    console.log('[NavBar] ctxAuthed=', ctxAuthed, 'cookieAuthed=', cookieAuthed, 'isAuthed=', isAuthed);
+  }, [ctxAuthed, cookieAuthed, isAuthed]);
+
+  const logout = () => {
+    window.location.href = '/api/auth/logout';
+  };
 
   return (
     <nav className="navbar navbar-expand-lg bg-white border-bottom">
@@ -46,7 +47,7 @@ const logout = () => {
         </button>
 
         <div className="collapse navbar-collapse" id="nav">
-          {authenticated && (
+          {isAuthed && (
             <ul className="navbar-nav me-auto mb-2 mb-lg-0">
               <li className="nav-item">
                 <Link className="nav-link d-flex align-items-center gap-2" href="/dashboard">
@@ -67,7 +68,7 @@ const logout = () => {
           )}
 
           <div className="ms-auto d-flex gap-2">
-            {!authenticated ? (
+            {!isAuthed ? (
               <Link className="btn btn-outline-primary d-flex align-items-center gap-2" href="/login">
                 <i className="fa-solid fa-right-to-bracket"></i> <span>Sign in</span>
               </Link>

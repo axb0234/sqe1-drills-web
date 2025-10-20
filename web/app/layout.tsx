@@ -30,9 +30,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
           strategy="afterInteractive"
         />
-        <NavBar />
-        <main className="container my-4">{children}</main>
-        <Footer />
+        {/* Auth context provider wraps the whole app */}
+        <Providers>
+          <NavBar />
+          <main className="container my-4">{children}</main>
+          <Footer />
+        </Providers>
       </body>
     </html>
   );

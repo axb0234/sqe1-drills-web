@@ -14,7 +14,9 @@ function readUserCookie(): User | undefined {
   try {
     const json = atob(decodeURIComponent(m[1]));
     return JSON.parse(json);
-  } catch { return; }
+  } catch {
+    return;
+  }
 }
 
 export default function AuthProvider({ children }: { children: ReactNode }) {
@@ -22,7 +24,10 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = () => {
     const user = readUserCookie();
-    setState({ ready: true, authenticated: !!user, user });
+    const next = { ready: true, authenticated: !!user, user };
+    // DEBUG
+    console.log('[AuthProvider] refresh ->', next, 'cookie:', document.cookie);
+    setState(next);
   };
 
   useEffect(() => {
@@ -35,6 +40,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('storage', onStore);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>;
