@@ -69,13 +69,7 @@ export function LoginForm() {
           <i className="fa-brands fa-google" />
           <span>Login with Google</span>
         </button>
-        /*<button
-          className="btn btn-outline-secondary d-flex align-items-center justify-content-center gap-2"
-          onClick={() => go(makeAuthUrl('login','microsoft'))} // IdP alias must match Keycloak
-        >
-          <i className="fa-brands fa-microsoft" />
-          <span>Login with Microsoft</span>
-        </button>*/
+        
       </div>
 
       <div className="mt-3">
