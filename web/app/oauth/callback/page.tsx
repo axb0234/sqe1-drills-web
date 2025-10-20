@@ -1,20 +1,37 @@
 'use client';
 
-import { useContext, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-// ⬇️ use a relative path (this file is at app/oauth/callback/page.tsx)
-import { AuthContext } from '../../../components/AuthProvider';
 
 export default function OAuthCallback() {
   const router = useRouter();
-  const { ready, authenticated } = useContext(AuthContext);
 
   useEffect(() => {
-    // wait for kc.init to finish, then route
-    if (!ready) return;
-    if (authenticated) router.replace('/dashboard');
-    else router.replace('/login');
-  }, [ready, authenticated, router]);
+    const url = new URL(window.location.href);
+    const hasError = url.searchParams.get('error');
+    const hasCode = !!url.searchParams.get('code');
+
+    if (hasError) {
+      // ensure UI shows logged-out state and bounce to login
+      sessionStorage.removeItem('kc-auth');
+      localStorage.removeItem('kc-auth');
+      router.replace('/login');
+      return;
+    }
+
+    if (hasCode) {
+      // we reached here after a successful Keycloak redirect — flip the UI flag
+      sessionStorage.setItem('kc-auth', '1');
+      localStorage.setItem('kc-auth', '1');
+      // clean up URL then go to dashboard
+      history.replaceState(null, '', '/oauth/callback');
+      router.replace('/dashboard');
+      return;
+    }
+
+    // fallback
+    router.replace('/');
+  }, [router]);
 
   return <div className="container py-5">Completing sign-in…</div>;
 }

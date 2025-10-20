@@ -4,9 +4,8 @@ import Link from 'next/link';
 import { useContext, useMemo } from 'react';
 import { AuthContext } from './AuthProvider';
 
-/** Build Keycloak endpoints (no SDK needed) */
 function kcCfg() {
-  const issuer = process.env.NEXT_PUBLIC_AUTH_ISSUER; // e.g. https://auth.sqe1prep.com/realms/sqe
+  const issuer = process.env.NEXT_PUBLIC_AUTH_ISSUER;
   const clientId =
     process.env.NEXT_PUBLIC_AUTH_CLIENT_ID ??
     process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID ??
@@ -29,7 +28,11 @@ export default function NavBar() {
   const { base, realm, clientId } = useMemo(kcCfg, []);
 
   const logout = () => {
-    // RP-initiated front-channel logout via Keycloak
+    // clear UI flag first
+    sessionStorage.removeItem('kc-auth');
+    localStorage.removeItem('kc-auth');
+
+    // RP-initiated logout at Keycloak then back home
     const u = new URL(`${base}/realms/${realm}/protocol/openid-connect/logout`);
     u.searchParams.set('client_id', String(clientId));
     u.searchParams.set('post_logout_redirect_uri', `${window.location.origin}/`);
