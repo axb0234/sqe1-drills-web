@@ -1,5 +1,12 @@
+import UserGreeting from '../../components/UserGreeting';
+
+
+
 export default function Billing() {
   return (
+  // …inside your component render, near the top:
+<UserGreeting className="mb-3" />
+
     <div className="card">
       <div className="card-body">
         <h5 className="card-title">Billing</h5>

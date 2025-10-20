@@ -2,6 +2,9 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import UserGreeting from '../../components/UserGreeting';
+
+
 
 export default function StartPage() {
   const [subject, setSubject] = useState('INTRO_LAW');
@@ -14,6 +17,9 @@ export default function StartPage() {
   };
 
   return (
+	// …inside your component render, near the top:
+<UserGreeting className="mb-3" />
+
     <div className="card shadow-sm">
       <div className="card-body">
         <h5 className="card-title">New Drill</h5>

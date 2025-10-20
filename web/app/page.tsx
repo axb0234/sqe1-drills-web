@@ -1,6 +1,8 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import TryQuestion from '../components/TryQuestion';
+import HomeCtas from '../components/HomeCtas';
+
 
 export default function Marketing() {
   return (
@@ -13,8 +15,9 @@ export default function Marketing() {
               Crisp MCQ practice by topic clusters, clean analytics, and a distraction-free workflow.
             </p>
             <div className="d-flex gap-2 mt-3">
-              <Link href="/start" className="btn btn-primary btn-lg">Start a drill</Link>
-              <Link href="/dashboard" className="btn btn-outline-secondary btn-lg">View dashboard</Link>
+
+				<HomeCtas />
+
             </div>
             <div className="text-secondary small mt-3">No sign-in required to try a sample question below.</div>
           </div>

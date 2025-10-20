@@ -1,8 +1,14 @@
 import KpiTile from '../../components/KpiTile';
 import Link from 'next/link';
+import UserGreeting from '../../components/UserGreeting';
+
+
+
 
 export default function Page() {
   return (
+	// …inside your component render, near the top:
+<UserGreeting className="mb-3" />
     <div className="row g-3">
       <div className="col-12 col-lg-8">
         <div className="d-flex flex-wrap gap-3">
