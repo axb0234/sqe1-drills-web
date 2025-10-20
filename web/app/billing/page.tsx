@@ -5,6 +5,7 @@ import UserGreeting from '../../components/UserGreeting';
 export default function Billing() {
   return (
   // …inside your component render, near the top:
+<>  
 <UserGreeting className="mb-3" />
 
     <div className="card">
@@ -14,5 +15,6 @@ export default function Billing() {
         <div className="alert alert-info mb-0">Stripe integration placeholder.</div>
       </div>
     </div>
+</>	
   );
 }

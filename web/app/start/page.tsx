@@ -18,6 +18,7 @@ export default function StartPage() {
 
   return (
 	// …inside your component render, near the top:
+<>	
 <UserGreeting className="mb-3" />
 
     <div className="card shadow-sm">
@@ -43,5 +44,6 @@ export default function StartPage() {
         <button className="btn btn-primary mt-3" onClick={create}>Create drill</button>
       </div>
     </div>
+</>	
   );
 }
