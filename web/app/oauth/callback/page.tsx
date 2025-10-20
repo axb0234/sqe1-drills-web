@@ -1,13 +1,19 @@
 'use client';
-import { useEffect } from 'react';
+
+import { useContext, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { AuthContext } from '@/components/AuthProvider';
 
 export default function OAuthCallback() {
   const router = useRouter();
+  const { ready, authenticated } = useContext(AuthContext);
+
   useEffect(() => {
-    // Keycloak processes the URL automatically via kc.init(); we just send users home
-    const t = setTimeout(() => router.replace('/'), 200);
-    return () => clearTimeout(t);
-  }, [router]);
+    // Wait for kc.init() to complete. Only then decide where to go.
+    if (!ready) return;
+    if (authenticated) router.replace('/dashboard');
+    else router.replace('/login');
+  }, [ready, authenticated, router]);
+
   return <div className="container py-5">Completing sign-in…</div>;
 }

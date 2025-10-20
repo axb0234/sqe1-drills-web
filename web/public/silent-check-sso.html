@@ -1,0 +1,9 @@
+<!doctype html>
+<html>
+  <body>
+    <script>
+      // Required by keycloak-js for onLoad:'check-sso' without popups
+      parent.postMessage(location.href, location.origin);
+    </script>
+  </body>
+</html>
