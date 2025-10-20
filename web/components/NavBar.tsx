@@ -10,28 +10,42 @@ function readCookieAuth() {
 }
 
 export default function NavBar() {
+  // gate rendering until client mounted to avoid SSR/CSR mismatch
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const { authenticated: ctxAuthed } = useContext(AuthContext);
-  const [cookieAuthed, setCookieAuthed] = useState<boolean>(readCookieAuth());
+  const [cookieAuthed, setCookieAuthed] = useState<boolean>(false);
 
   useEffect(() => {
+    if (!mounted) return;
     const t = () => setCookieAuthed(readCookieAuth());
     t();
     const onVis = () => document.visibilityState === 'visible' && t();
     window.addEventListener('visibilitychange', onVis);
-    const i = setInterval(t, 1000); // very light polling to avoid race during first paint
+    const i = setInterval(t, 1000);
     return () => { window.removeEventListener('visibilitychange', onVis); clearInterval(i); };
-  }, []);
+  }, [mounted]);
 
-  const isAuthed = ctxAuthed || cookieAuthed;
-
-  // DEBUG
-  useEffect(() => {
-    console.log('[NavBar] ctxAuthed=', ctxAuthed, 'cookieAuthed=', cookieAuthed, 'isAuthed=', isAuthed);
-  }, [ctxAuthed, cookieAuthed, isAuthed]);
+  const isAuthed = mounted && (ctxAuthed || cookieAuthed);
 
   const logout = () => {
     window.location.href = '/api/auth/logout';
   };
+
+  // While not mounted, render a minimal, auth-agnostic navbar (prevents hydration mismatch)
+  if (!mounted) {
+    return (
+      <nav className="navbar navbar-expand-lg bg-white border-bottom">
+        <div className="container">
+          <Link className="navbar-brand fw-bold d-flex align-items-center gap-2" href="/">
+            <i className="fa-solid fa-graduation-cap"></i>
+            <span><b>SQE1</b> Drills</span>
+          </Link>
+        </div>
+      </nav>
+    );
+  }
 
   return (
     <nav className="navbar navbar-expand-lg bg-white border-bottom">

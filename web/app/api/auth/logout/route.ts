@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+function getExternalOrigin(req: NextRequest) {
+  const xfProto = req.headers.get('x-forwarded-proto');
+  const xfHost  = req.headers.get('x-forwarded-host');
+  if (xfProto && xfHost) return `${xfProto}://${xfHost}`;
+  const host = req.headers.get('host') || req.nextUrl.host;
+  const proto = (req.nextUrl.protocol || 'https:').replace(/:$/, '');
+  return `${proto}://${host}`;
+}
+
 function cfg() {
   const issuer = process.env.NEXT_PUBLIC_AUTH_ISSUER;
   const clientId =
@@ -19,17 +28,16 @@ function cfg() {
 }
 
 export async function GET(req: NextRequest) {
+  const publicOrigin = getExternalOrigin(req);                 // <-- use forwarded origin
   const { base, realm, clientId } = cfg();
-  const { origin } = req.nextUrl;
 
-  const logoutUrl = new URL(`${base}/realms/${realm}/protocol/openid-connect/logout`);
-  logoutUrl.searchParams.set('client_id', clientId);
-  logoutUrl.searchParams.set('post_logout_redirect_uri', origin + '/');
+  const kcLogout = new URL(`${base}/realms/${realm}/protocol/openid-connect/logout`);
+  kcLogout.searchParams.set('client_id', clientId);
+  kcLogout.searchParams.set('post_logout_redirect_uri', `${publicOrigin}/`);
 
-  const res = NextResponse.redirect(logoutUrl.toString());
-  // Clear our cookies
+  const res = NextResponse.redirect(kcLogout.toString());
   ['sqe_id', 'sqe_rt', 'sqe_user'].forEach((c) =>
-    res.cookies.set(c, '', { path: '/', maxAge: 0 })
+    res.cookies.set(c, '', { path: '/', maxAge: 0 }),
   );
   return res;
 }
