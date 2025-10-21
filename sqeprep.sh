@@ -24,7 +24,7 @@ fi
 source "$VENV_DIR/bin/activate"
 
 # install deps if needed
-if ! python -c "import openai, numpy, pypdf" >/dev/null 2>&1; then
+if ! python -c "import openai, numpy, pypdf, psycopg, qdrant_client" >/dev/null 2>&1; then
   pip install -r "$SCRIPTS_DIR/requirements.txt"
 fi
 
@@ -34,11 +34,11 @@ usage() {
   cat <<'EOF'
 Usage:
   ./sqeprep.sh vectorise --subject "Contract Law" --pdfs-dir "/path/to/pdfs" [--max-tokens 800 --overlap 120]
-  ./sqeprep.sh generate  --subject "Contract Law" --topic "Consideration" [--n 5 --top-k 12 --temperature 0.2]
+  ./sqeprep.sh generate  --subject "Contract Law" [--topic "Consideration" --n 5 --top-k 12 --temperature 0.2]
 
 Relies on .env.ai for:
   AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AOAI_EMBEDDINGS_DEPLOYMENT, AOAI_CHAT_DEPLOYMENT
-  VECTOR_DB (default ops/data/vector_store.sqlite3) and QUESTIONS_DB (default ops/data/questions.sqlite3)
+  DATABASE_URL or PG*/APP_DB_* vars for Postgres, QDRANT_* vars for the vector store
 EOF
 }
 

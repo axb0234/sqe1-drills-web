@@ -1,54 +1,117 @@
 export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '../../../../../lib/sqlite';
+import { query } from '../../../../../lib/db';
 import { readServerUser } from '../../../../../lib/user';
+
+type DrillItemRow = { order_index: number; question_id: number };
+type QuestionRow = {
+  id: number;
+  stem: string;
+  answer_index: number;
+  topic: string | null;
+  rationale_correct: string | null;
+  source_refs: any;
+};
+type ChoiceRow = { label: string; text: string; rationale: string | null };
 
 export async function GET(_: NextRequest, { params }: { params: { sid: string } }) {
   const u = readServerUser();
   if (!u?.sub) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
-  const db = getDb();
   const sid = params.sid;
 
-  const session = db.prepare(`SELECT id, total FROM drill_sessions WHERE id=? AND user_id=?`).get(sid, u.sub) as any;
+  const sessionRes = await query<{ id: string; total: number }>(
+    'SELECT id, total FROM drill_sessions WHERE id = $1 AND user_id = $2',
+    [sid, u.sub]
+  );
+  const session = sessionRes.rows[0];
   if (!session) return NextResponse.json({ error: 'not found' }, { status: 404 });
 
-  const item = db
-    .prepare(`
-      SELECT di.order_index, di.question_id
-      FROM drill_items di
-      WHERE di.session_id = ?
+  const itemRes = await query<DrillItemRow>(
+    `SELECT di.order_index, di.question_id
+       FROM drill_items di
+      WHERE di.session_id = $1
         AND di.answered_at IS NULL
       ORDER BY di.order_index ASC
-      LIMIT 1
-    `)
-    .get(sid) as { order_index: number; question_id: number } | undefined;
+      LIMIT 1`,
+    [sid]
+  );
+  const item = itemRes.rows[0];
 
   if (!item) {
-    const summary = db.prepare(`
-      SELECT COUNT(*) AS total,
-             SUM(CASE WHEN is_correct=1 THEN 1 ELSE 0 END) AS correct,
-             ROUND(COALESCE(SUM(elapsed_ms),0) / 1000.0, 2) AS totalTimeSec,
-             ROUND(COALESCE(AVG(elapsed_ms),0) / 1000.0, 2) AS avgTimeSec
-      FROM drill_items WHERE session_id = ?
-    `).get(sid) as any;
+    const summaryRes = await query<{
+      total: string | number | null;
+      correct: string | number | null;
+      total_ms: string | number | null;
+      avg_ms: string | number | null;
+    }>(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN is_correct THEN 1 ELSE 0 END) AS correct,
+              SUM(COALESCE(elapsed_ms, 0)) AS total_ms,
+              AVG(COALESCE(elapsed_ms, 0)) AS avg_ms
+         FROM drill_items
+        WHERE session_id = $1`,
+      [sid]
+    );
+    const summaryRow = summaryRes.rows[0] || {
+      total: 0,
+      correct: 0,
+      total_ms: 0,
+      avg_ms: 0,
+    };
 
-    const sess = db.prepare(`SELECT finished_at FROM drill_sessions WHERE id=?`).get(sid) as any;
-    if (!sess?.finished_at) {
-      const dur = db.prepare(`SELECT COALESCE(SUM(elapsed_ms),0) AS ms FROM drill_items WHERE session_id=?`).get(sid) as any;
-      db.prepare(`UPDATE drill_sessions SET finished_at=CURRENT_TIMESTAMP, duration_sec=?, score=? WHERE id=?`)
-        .run(Math.round((dur.ms || 0) / 1000), summary.correct ?? 0, sid);
+    const totalMs = Number(summaryRow.total_ms || 0);
+    const avgMs = Number(summaryRow.avg_ms || 0);
+    const total = Number(summaryRow.total || 0);
+    const correct = Number(summaryRow.correct || 0);
+
+    const finishedRes = await query<{ finished_at: Date | null }>(
+      'SELECT finished_at FROM drill_sessions WHERE id = $1',
+      [sid]
+    );
+    const finished = finishedRes.rows[0];
+    if (!finished?.finished_at) {
+      await query(
+        'UPDATE drill_sessions SET finished_at = NOW(), duration_sec = $1, score = $2 WHERE id = $3',
+        [Math.round(totalMs / 1000), correct, sid]
+      );
     }
 
-    return NextResponse.json({ done: true, summary });
+    return NextResponse.json({
+      done: true,
+      summary: {
+        total,
+        correct,
+        totalTimeSec: Math.round((totalMs / 1000) * 100) / 100,
+        avgTimeSec: Math.round((avgMs / 1000) * 100) / 100,
+      },
+    });
   }
 
-  const q = db.prepare(`
-    SELECT q.id, q.stem, q.answer_index, q.topic, q.rationale_correct, q.source_refs
-    FROM questions q WHERE q.id = ?
-  `).get(item.question_id) as any;
+  const questionRes = await query<QuestionRow>(
+    `SELECT q.id, q.stem, q.answer_index, q.topic, q.rationale_correct, q.source_refs
+       FROM questions q WHERE q.id = $1`,
+    [item.question_id]
+  );
+  const q = questionRes.rows[0];
+  if (!q) {
+    return NextResponse.json({ error: 'Question not found' }, { status: 404 });
+  }
 
-  const choices = db.prepare(`SELECT label, text, rationale FROM choices WHERE question_id = ? ORDER BY label ASC`).all(q.id);
+  const choicesRes = await query<ChoiceRow>(
+    'SELECT label, text, rationale FROM choices WHERE question_id = $1 ORDER BY label ASC',
+    [q.id]
+  );
+  const choices = choicesRes.rows.map((c: ChoiceRow) => ({
+    label: c.label,
+    text: c.text,
+    rationale: c.rationale ?? '',
+  }));
+  const sourceRefs = Array.isArray(q.source_refs)
+    ? q.source_refs
+    : typeof q.source_refs === 'string'
+      ? [q.source_refs]
+      : [];
 
   return NextResponse.json({
     done: false,
@@ -60,7 +123,7 @@ export async function GET(_: NextRequest, { params }: { params: { sid: string } 
       options: choices,
       correctIndex: q.answer_index,
       explanation: q.rationale_correct,
-      source: q.source_refs
-    }
+      source: sourceRefs.join(', '),
+    },
   });
 }

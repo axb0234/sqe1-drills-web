@@ -1,4 +1,4 @@
-"""Vectorise PDFs into a local SQLite+NumPy vector store (per subject)."""
+"""Vectorise PDFs and upsert embeddings into Qdrant (per subject)."""
 from __future__ import annotations
 import os, argparse, logging, pathlib
 from typing import List, Tuple
@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 import tiktoken
 
 from openai import AzureOpenAI
-from vector_store import LocalVectorStore, EmbeddingRecord, emb_id
+from vector_store import QdrantVectorStore, EmbeddingRecord, emb_id
 
 load_dotenv(".env.ai", override=True)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -59,10 +59,15 @@ def main():
     ap.add_argument("--max-tokens", type=int, default=800)
     ap.add_argument("--overlap", type=int, default=120)
     ap.add_argument("--batch-size", type=int, default=32)
+    ap.add_argument(
+        "--collection",
+        default=os.getenv("QDRANT_COLLECTION"),
+        help="Override Qdrant collection name (defaults to QDRANT_COLLECTION env or 'sqe1_material').",
+    )
     args = ap.parse_args()
 
     cli = embed_client()
-    store = LocalVectorStore()
+    store = QdrantVectorStore(collection=args.collection or os.getenv("QDRANT_COLLECTION", "sqe1_material"))
 
     pdf_dir = pathlib.Path(args.pdfs_dir)
     pdfs = sorted(pdf_dir.rglob("*.pdf"))
