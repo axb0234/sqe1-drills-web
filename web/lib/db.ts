@@ -159,13 +159,16 @@ async function ensureSchema(): Promise<void> {
   await schemaPromise;
 }
 
-export async function query<T extends QueryResultRow = QueryResultRow>(
+// AFTER (fix)
+export async function query<T>(
   text: string,
-  params?: readonly unknown[],
+  params?: ReadonlyArray<unknown>
 ): Promise<QueryResult<T>> {
   await ensureSchema();
-  return getPool().query<T>(text, params);
+  const values = params === undefined ? undefined : Array.from(params) as any[];
+  return getPool().query<T>(text, values);
 }
+
 
 export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
   await ensureSchema();
