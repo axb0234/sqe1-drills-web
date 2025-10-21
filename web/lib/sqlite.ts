@@ -1,9 +1,10 @@
 // web/lib/sqlite.ts
-import Database = require('better-sqlite3'); // <-- TS import-equals for export=
+import BetterSqlite3 from 'better-sqlite3';
+import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 
-type DBT = Database;
+type DBT = BetterSqlite3Database;
 declare global {
   // eslint-disable-next-line no-var
   var __sqe_db__: DBT | undefined;
@@ -27,6 +28,26 @@ function migrate(db: DBT) {
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
+
+    CREATE TABLE IF NOT EXISTS subjects (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS questions (
+      id INTEGER PRIMARY KEY,
+      subject_id INTEGER NOT NULL,
+      stem TEXT NOT NULL,
+      topic TEXT,
+      answer_index INTEGER NOT NULL,
+      rationale_correct TEXT,
+      source_refs TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      FOREIGN KEY(subject_id) REFERENCES subjects(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS ix_questions_subject ON questions(subject_id);
+    CREATE INDEX IF NOT EXISTS ix_questions_active ON questions(is_active);
 
     CREATE TABLE IF NOT EXISTS drill_sessions (
       id TEXT PRIMARY KEY,
@@ -59,7 +80,7 @@ function migrate(db: DBT) {
 export function getDb(): DBT {
   if (global.__sqe_db__) return global.__sqe_db__;
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  const db = new Database(DB_PATH); // <-- plain 'new Database(...)'
+  const db = new BetterSqlite3(DB_PATH);
   migrate(db);
   global.__sqe_db__ = db;
   return db;
