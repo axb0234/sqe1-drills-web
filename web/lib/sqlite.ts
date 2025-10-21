@@ -1,9 +1,5 @@
-// --- TOP OF FILE ---
-import type Database from 'better-sqlite3';
-// Require at runtime; keep proper types for the ctor/class
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const DatabaseCtor = require('better-sqlite3') as unknown as { new (...args: any[]): Database };
-
+// web/lib/sqlite.ts
+import Database = require('better-sqlite3'); // <-- TS import-equals for export=
 import fs from 'fs';
 import path from 'path';
 
@@ -14,15 +10,14 @@ declare global {
 }
 
 function resolveDbPath(): string {
-  // 1) Explicit override if you want
   const env = process.env.QUESTIONS_DB?.trim();
   if (env) return env;
 
-  // 2) Standard repo layout: app runs from /web, DB lives in ../ops/data
+  // Repo layout: app runs from /web, DB lives in ../ops/data
   const p1 = path.resolve(process.cwd(), '..', 'ops', 'data', 'questions.sqlite3');
   if (fs.existsSync(path.dirname(p1))) return p1;
 
-  // 3) Container fallback (e.g., /app is WORKDIR)
+  // Container fallback (e.g., WORKDIR=/app/web)
   return '/app/ops/data/questions.sqlite3';
 }
 
@@ -64,7 +59,7 @@ function migrate(db: DBT) {
 export function getDb(): DBT {
   if (global.__sqe_db__) return global.__sqe_db__;
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  const db = new DatabaseCtor(DB_PATH);   // << change: use DatabaseCtor
+  const db = new Database(DB_PATH); // <-- plain 'new Database(...)'
   migrate(db);
   global.__sqe_db__ = db;
   return db;
