@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "prepare:swc": "node scripts/prepare-swc.cjs",
+    "prepare:swc": "node scripts/prepare-swc.cjs || true",
     "prebuild": "npm run prepare:swc",
     "postinstall": "npm run prepare:swc"
   },
