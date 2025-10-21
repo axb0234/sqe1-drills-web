@@ -29,6 +29,26 @@ function migrate(db: DBT) {
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
 
+    CREATE TABLE IF NOT EXISTS subjects (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS questions (
+      id INTEGER PRIMARY KEY,
+      subject_id INTEGER NOT NULL,
+      stem TEXT NOT NULL,
+      topic TEXT,
+      answer_index INTEGER NOT NULL,
+      rationale_correct TEXT,
+      source_refs TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      FOREIGN KEY(subject_id) REFERENCES subjects(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS ix_questions_subject ON questions(subject_id);
+    CREATE INDEX IF NOT EXISTS ix_questions_active ON questions(is_active);
+
     CREATE TABLE IF NOT EXISTS drill_sessions (
       id TEXT PRIMARY KEY,
       user_id TEXT,
