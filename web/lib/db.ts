@@ -161,7 +161,7 @@ async function ensureSchema(): Promise<void> {
 
 export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
-  params?: ReadonlyArray<unknown>
+  params?: readonly unknown[],
 ): Promise<QueryResult<T>> {
   await ensureSchema();
   const values = params == null ? undefined : (Array.from(params) as any[]);
