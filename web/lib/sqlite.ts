@@ -53,6 +53,10 @@ function resolveDbPath(): string {
 
 const DB_PATH = resolveDbPath();
 
+export function getDbPath(): string {
+  return DB_PATH;
+}
+
 function migrate(db: DBT) {
   db.exec(`
     PRAGMA journal_mode = WAL;
@@ -108,6 +112,7 @@ function migrate(db: DBT) {
 
 export function getDb(): DBT {
   if (global.__sqe_db__) return global.__sqe_db__;
+  console.debug(`[sqlite] Opening questions database at ${DB_PATH}`);
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   const db = new BetterSqlite3(DB_PATH);
   migrate(db);
