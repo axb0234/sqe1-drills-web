@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
   kcLogout.searchParams.set('post_logout_redirect_uri', `${publicOrigin}/`);
 
   const res = NextResponse.redirect(kcLogout.toString());
-  ['sqe_id', 'sqe_rt', 'sqe_user'].forEach((c) =>
+  ['sqe_id', 'sqe_rt', 'sqe_user'].forEach((c: string) =>
     res.cookies.set(c, '', { path: '/', maxAge: 0 }),
   );
   return res;
