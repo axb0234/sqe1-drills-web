@@ -7,22 +7,137 @@ import { AuthContext } from '../../components/AuthProvider';
 
 type Subject = { id: string | number; name: string };
 
+type DbSearchProbe = {
+  base: string;
+  filePath: string;
+  baseExists: boolean;
+  fileExists: boolean;
+};
+
+const ALL_SUBJECT_OPTION: Subject = { id: 'ALL', name: 'ALL Subjects' };
+
+function ensureAllSubjectOption(list: Subject[]): Subject[] {
+  const normalized = list.map((item) => ({ id: item.id, name: item.name }));
+  const hasAll = normalized.some((item) => String(item.id) === 'ALL');
+  if (hasAll) {
+    return normalized.map((item) =>
+      String(item.id) === 'ALL' ? ALL_SUBJECT_OPTION : item,
+    );
+  }
+  return [ALL_SUBJECT_OPTION, ...normalized];
+}
+
+function safeCommentContent(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/--/g, '-​-');
+}
+
+function getFallbackSubjects(): Subject[] {
+  return ensureAllSubjectOption([]);
+}
+
+function summarizeSearchLog(log?: DbSearchProbe[]): string {
+  if (!log?.length) return 'no search log available';
+
+  const formatEntry = (entry: DbSearchProbe) =>
+    `${entry.fileExists ? '✓' : entry.baseExists ? '·' : '✗'} ${entry.filePath}`;
+
+  const interesting = log
+    .filter((entry) => entry.fileExists || entry.baseExists)
+    .map(formatEntry);
+
+  const source = interesting.length ? interesting : log.map(formatEntry);
+
+  return source.slice(0, 5).join('; ');
+}
+
 export default function StartPage() {
   const router = useRouter();
   const { authenticated } = useContext(AuthContext);
 
-  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>(getFallbackSubjects);
   const [subject, setSubject] = useState<string>('ALL'); // store as string for the <select>
   const [len, setLen] = useState<number>(10);
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string>('');
 
   // Load subjects on mount
   useEffect(() => {
-    fetch('/api/subjects')
-      .then((r) => r.json())
-      .then((d) => setSubjects(d.subjects || []))
-      .catch(() => setSubjects([{ id: 'ALL', name: 'ALL Subjects' }]));
+    let active = true;
+
+    async function loadSubjects() {
+      const fallback = getFallbackSubjects();
+      try {
+        setDebugInfo('Fetching /api/subjects…');
+        const res = await fetch('/api/subjects');
+        const raw = await res.text();
+        console.debug('StartPage /api/subjects response', {
+          status: res.status,
+          body: raw,
+        });
+
+        if (!active) return;
+
+        let parsed: unknown = null;
+        try {
+          parsed = raw ? JSON.parse(raw) : {};
+        } catch (err) {
+          console.error('Unable to parse /api/subjects JSON', err);
+          setSubjects(getFallbackSubjects());
+          setSubject('ALL');
+          setDebugInfo(
+            `Failed to parse /api/subjects response (status ${res.status}).`,
+          );
+          return;
+        }
+
+        const data = parsed as {
+          subjects?: Subject[];
+          debug?: {
+            dbPath?: string;
+            rowCount?: number;
+            searchLog?: DbSearchProbe[];
+          };
+        };
+
+        const nextSubjects = Array.isArray(data.subjects)
+          ? ensureAllSubjectOption(data.subjects)
+          : fallback;
+
+        setSubjects(nextSubjects);
+        if (!Array.isArray(data.subjects)) {
+          setSubject('ALL');
+        }
+
+        const dbPathInfo = data.debug?.dbPath ?? 'unknown path';
+        const rowsInfo = data.debug?.rowCount ?? nextSubjects.length;
+        console.debug('StartPage database search log', data.debug?.searchLog);
+        const searchInfo = summarizeSearchLog(data.debug?.searchLog);
+        setDebugInfo(
+          `Fetched ${nextSubjects.length} subject option(s) (status ${res.status}; rows ${rowsInfo}; db ${dbPathInfo}; search ${searchInfo}).`,
+        );
+      } catch (err) {
+        console.error('Failed to load /api/subjects', err);
+        if (!active) return;
+        setSubjects(getFallbackSubjects());
+        setSubject('ALL');
+        setDebugInfo(
+          `Error fetching /api/subjects: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    loadSubjects();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function create() {
@@ -121,6 +236,18 @@ export default function StartPage() {
           >
             {busy ? 'Creating…' : 'Create drill'}
           </button>
+          {debugInfo && (
+            <>
+              <div
+                className="visually-hidden"
+                aria-hidden="true"
+                dangerouslySetInnerHTML={{
+                  __html: `<!-- ${safeCommentContent(debugInfo)} -->`,
+                }}
+              />
+              <p className="text-muted small mt-3">Debug: {debugInfo}</p>
+            </>
+          )}
         </div>
       </div>
     </>

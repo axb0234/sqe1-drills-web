@@ -13,14 +13,16 @@ export async function GET(_: NextRequest, { params }: { params: { sid: string } 
   const session = db.prepare(`SELECT id, total FROM drill_sessions WHERE id=? AND user_id=?`).get(sid, u.sub) as any;
   if (!session) return NextResponse.json({ error: 'not found' }, { status: 404 });
 
-  const item = db.prepare(`
-    SELECT di.order_index, di.question_id
-    FROM drill_items di
-    WHERE di.session_id = ?
-      AND di.answered_at IS NULL
-    ORDER BY di.order_index ASC
-    LIMIT 1
-  `).get(sid);
+  const item = db
+    .prepare(`
+      SELECT di.order_index, di.question_id
+      FROM drill_items di
+      WHERE di.session_id = ?
+        AND di.answered_at IS NULL
+      ORDER BY di.order_index ASC
+      LIMIT 1
+    `)
+    .get(sid) as { order_index: number; question_id: number } | undefined;
 
   if (!item) {
     const summary = db.prepare(`
