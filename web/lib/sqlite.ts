@@ -1,12 +1,14 @@
-import type BetterSqlite3 from 'better-sqlite3';
-// Use require at runtime, but keep type safety from @types/better-sqlite3
+// --- TOP OF FILE ---
+import type Database from 'better-sqlite3';
+// Require at runtime; keep proper types for the ctor/class
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const Database: typeof BetterSqlite3 = require('better-sqlite3');
+const DatabaseCtor = require('better-sqlite3') as unknown as { new (...args: any[]): Database };
+
 import fs from 'fs';
 import path from 'path';
 
-type DBT = Database.Database;
-declare global { // keep a single connection in dev/hot-reload
+type DBT = Database;
+declare global {
   // eslint-disable-next-line no-var
   var __sqe_db__: DBT | undefined;
 }
@@ -62,7 +64,7 @@ function migrate(db: DBT) {
 export function getDb(): DBT {
   if (global.__sqe_db__) return global.__sqe_db__;
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  const db = new Database(DB_PATH);
+  const db = new DatabaseCtor(DB_PATH);   // << change: use DatabaseCtor
   migrate(db);
   global.__sqe_db__ = db;
   return db;
