@@ -1,162 +1,107 @@
-"""CLI utility to vectorize subject PDFs into the local vector store."""
+"""Vectorise PDFs into a local SQLite+NumPy vector store (per subject)."""
 from __future__ import annotations
-
-import argparse
-import hashlib
-import logging
-from pathlib import Path
-from typing import Iterable, List
-
+import os, argparse, logging, pathlib, hashlib
+from typing import List, Tuple
 import numpy as np
 from pypdf import PdfReader
-from sentence_transformers import SentenceTransformer
+from tenacity import retry, wait_exponential, stop_after_attempt
+from dotenv import load_dotenv
+import tiktoken
 
-if __package__ in (None, ""):
-    import sys
+from openai import OpenAI
+from vector_store import LocalVectorStore, EmbeddingRecord, emb_id
 
-    package_root = Path(__file__).resolve().parent.parent
-    if str(package_root) not in sys.path:
-        sys.path.append(str(package_root))
-    from scripts.vector_store import Chunk, VectorStore  # type: ignore
-else:
-    from .vector_store import Chunk, VectorStore
+load_dotenv(".env.ai", override=True)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
+def azure_client() -> OpenAI:
+    endpoint = os.environ["AZURE_OPENAI_ENDPOINT"].rstrip("/")
+    key = os.environ["AZURE_OPENAI_API_KEY"]
+    return OpenAI(api_key=key, base_url=f"{endpoint}/openai/v1")
 
-logger = logging.getLogger(__name__)
+def read_pdf_texts(pdf_path: str) -> List[Tuple[int, str]]:
+    pages = []
+    r = PdfReader(pdf_path)
+    for i, p in enumerate(r.pages):
+        txt = (p.extract_text() or "").strip()
+        if txt:
+            pages.append((i+1, txt))
+    return pages
 
-
-def chunk_text(text: str, chunk_size: int, overlap: int) -> List[str]:
-    tokens = text.split()
-    if not tokens:
+def chunk_by_tokens(text: str, max_tokens=800, overlap=120) -> List[str]:
+    if not text.strip():
         return []
-    chunks = []
-    start = 0
-    while start < len(tokens):
-        end = min(start + chunk_size, len(tokens))
-        chunk_tokens = tokens[start:end]
-        chunks.append(" ".join(chunk_tokens))
-        if end == len(tokens):
-            break
-        start = max(end - overlap, 0)
-        if start == end:
-            start += 1
-    return chunks
+    enc = tiktoken.get_encoding("cl100k_base")
+    toks = enc.encode(text)
+    out = []
+    i = 0
+    step = max_tokens - overlap
+    while i < len(toks):
+        chunk = enc.decode(toks[i:i+max_tokens]).strip()
+        if chunk:
+            out.append(chunk)
+        i += step
+    return out
 
+@retry(wait=wait_exponential(multiplier=1, min=1, max=20), stop=stop_after_attempt(5))
+def embed_batch(cli: OpenAI, deployment: str, texts: List[str]) -> List[List[float]]:
+    res = cli.embeddings.create(model=deployment, input=texts)
+    return [d.embedding for d in res.data]
 
-def checksum_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fp:
-        for block in iter(lambda: fp.read(1 << 20), b""):
-            h.update(block)
-    return h.hexdigest()
+def main():
+    ap = argparse.ArgumentParser(description="Vectorise PDFs into local store")
+    ap.add_argument("--subject", required=True, help="e.g., 'Contract Law'")
+    ap.add_argument("--pdfs-dir", required=True, help="Directory of PDFs")
+    ap.add_argument("--emb-deploy", default=os.getenv("AOAI_EMBEDDINGS_DEPLOYMENT", "text-embedding-3-large"))
+    ap.add_argument("--max-tokens", type=int, default=800)
+    ap.add_argument("--overlap", type=int, default=120)
+    ap.add_argument("--batch-size", type=int, default=32)
+    args = ap.parse_args()
 
+    cli = azure_client()
+    store = LocalVectorStore()
 
-def read_pdf(path: Path) -> str:
-    reader = PdfReader(str(path))
-    text_parts: List[str] = []
-    for page in reader.pages:
-        text = page.extract_text() or ""
-        text_parts.append(text.strip())
-    return "\n".join(part for part in text_parts if part)
+    pdf_dir = pathlib.Path(args.pdfs_dir)
+    pdfs = sorted([p for p in pdf_dir.rglob("*.pdf")])
+    if not pdfs:
+        logging.warning("No PDFs found in %s", pdf_dir)
+        return 0
 
+    logging.info("Found %d PDFs under %s", len(pdfs), pdf_dir)
+    for pdf in pdfs:
+        pages = read_pdf_texts(str(pdf))
+        for page, text in pages:
+            chunks = chunk_by_tokens(text, max_tokens=args.max_tokens, overlap=args.overlap)
+            batch = []
+            buf_texts = []
+            meta = []
+            for idx, ch in enumerate(chunks):
+                uid = emb_id(args.subject, str(pdf), page, idx)
+                buf_texts.append(ch)
+                meta.append((uid, args.subject, str(pdf), page, idx, ch))
+                if len(buf_texts) >= args.batch_size:
+                    vecs = embed_batch(cli, args.emb_deploy, buf_texts)
+                    for m, v in zip(meta, vecs):
+                        batch.append(EmbeddingRecord(
+                            id=m[0], subject=m[1], source_path=m[2], page=m[3], chunk_index=m[4],
+                            text=m[5], vec=np.asarray(v, dtype=np.float32)
+                        ))
+                    store.upsert(batch)
+                    batch, buf_texts, meta = [], [], []
 
-def vectorize_subject(
-    subject: str,
-    pdf_dir: Path,
-    vector_db: Path,
-    model_name: str,
-    chunk_size: int,
-    overlap: int,
-) -> None:
-    model = SentenceTransformer(model_name)
-    store = VectorStore(vector_db)
+            if buf_texts:
+                vecs = embed_batch(cli, args.emb_deploy, buf_texts)
+                for m, v in zip(meta, vecs):
+                    batch.append(EmbeddingRecord(
+                        id=m[0], subject=m[1], source_path=m[2], page=m[3], chunk_index=m[4],
+                        text=m[5], vec=np.asarray(v, dtype=np.float32)
+                    ))
+                store.upsert(batch)
 
-    pdf_paths = sorted([p for p in pdf_dir.glob("*.pdf") if p.is_file()])
-    logger.info("Found %d PDF(s) for subject '%s'", len(pdf_paths), subject)
-    for pdf_path in pdf_paths:
-        checksum = checksum_file(pdf_path)
-        existing = store.get_file_record(subject, pdf_path)
-        if existing and existing["checksum"] == checksum:
-            logger.info("Skipping unchanged PDF: %s", pdf_path.name)
-            continue
-        text = read_pdf(pdf_path)
-        if not text:
-            logger.warning("Skipping empty PDF: %s", pdf_path)
-            continue
-        text_chunks = chunk_text(text, chunk_size=chunk_size, overlap=overlap)
-        if not text_chunks:
-            logger.warning("No chunks generated for %s", pdf_path)
-            continue
-        embeddings = model.encode(text_chunks, convert_to_numpy=True, normalize_embeddings=True)
-        chunk_objects = [
-            Chunk(
-                subject=subject,
-                source_path=pdf_path,
-                chunk_index=i,
-                content=chunk_text_str,
-                embedding=np.asarray(embeddings[i], dtype=np.float32),
-            )
-            for i, chunk_text_str in enumerate(text_chunks)
-        ]
-        store.upsert_file(subject, pdf_path, checksum, chunk_objects)
-        logger.info(
-            "Vectorized %s (%d chunks)",
-            pdf_path.name,
-            len(chunk_objects),
-        )
+        logging.info("Vectorised: %s", pdf.name)
 
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("subject", help="Name of the subject the PDFs belong to")
-    parser.add_argument("pdf_dir", type=Path, help="Directory containing subject PDFs")
-    parser.add_argument(
-        "vector_db",
-        type=Path,
-        help="Path to the SQLite file backing the vector store",
-    )
-    parser.add_argument(
-        "--model",
-        default="sentence-transformers/all-MiniLM-L6-v2",
-        help="SentenceTransformer model to use",
-    )
-    parser.add_argument(
-        "--chunk-size",
-        type=int,
-        default=180,
-        help="Chunk size in tokens (approximate words)",
-    )
-    parser.add_argument(
-        "--overlap",
-        type=int,
-        default=40,
-        help="Chunk overlap in tokens",
-    )
-    parser.add_argument(
-        "--log-level",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-    )
-    return parser
-
-
-def main(argv: Iterable[str] | None = None) -> None:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    logging.basicConfig(level=getattr(logging, args.log_level))
-
-    if not args.pdf_dir.exists():
-        raise SystemExit(f"PDF directory not found: {args.pdf_dir}")
-
-    vectorize_subject(
-        subject=args.subject,
-        pdf_dir=args.pdf_dir,
-        vector_db=args.vector_db,
-        model_name=args.model,
-        chunk_size=args.chunk_size,
-        overlap=args.overlap,
-    )
-
+    logging.info("Done.")
+    return 0
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
