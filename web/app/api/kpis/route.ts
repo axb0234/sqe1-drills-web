@@ -55,7 +55,7 @@ export async function GET() {
   );
 
   const daySet = new Set(
-    streakRes.rows.map((row) =>
+    streakRes.rows.map((row: { day: string | Date }) =>
       row.day instanceof Date ? row.day.toISOString().slice(0, 10) : row.day
     )
   );

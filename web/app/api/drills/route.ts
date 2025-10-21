@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
       WHERE ds.user_id = $1`,
     [u.sub]
   );
-  const seen = seenRes.rows.map((r) => Number(r.question_id));
+  const seen = seenRes.rows.map((r: { question_id: number }) => Number(r.question_id));
 
   let whereClause = 'WHERE q.is_active = TRUE';
   const params: any[] = [];
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       LIMIT $${limitIdx}
   `;
   const sampleRes = await query<{ id: number }>(sampleQuery, [...params, length]);
-  const sampleIds = sampleRes.rows.map((r) => Number(r.id));
+  const sampleIds = sampleRes.rows.map((r: { id: number }) => Number(r.id));
 
   if (sampleIds.length < length) {
     return NextResponse.json({
