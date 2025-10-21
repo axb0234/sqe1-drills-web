@@ -4,3 +4,5 @@ pypdf>=4.3.1
 numpy>=1.26.0
 tiktoken>=0.7.0
 tenacity>=8.2.3
+psycopg[binary]>=3.2.1
+qdrant-client>=1.9.1
