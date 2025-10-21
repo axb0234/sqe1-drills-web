@@ -1,19 +1,25 @@
 export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
-import { getDb, getDbPath, getDbResolutionLog } from '../../../lib/sqlite';
+import { query, getConnectionInfo } from '../../../lib/db';
+
+type SubjectRow = { id: number; name: string };
 
 export async function GET() {
-  const db = getDb();
-  const rows = db.prepare(`SELECT id, name FROM subjects ORDER BY name`).all();
-  console.debug(
-    `[subjects] Loaded ${rows.length} subjects from ${getDbPath()}`,
+  const res = await query<SubjectRow>(
+    'SELECT id, name FROM subjects ORDER BY name'
   );
+  const subjects = res.rows;
+
+  console.debug(
+    `[subjects] Loaded ${subjects.length} subjects from Postgres`,
+    getConnectionInfo()
+  );
+
   return NextResponse.json({
-    subjects: [{ id: 'ALL', name: 'ALL Subjects' }, ...rows],
+    subjects: [{ id: 'ALL', name: 'ALL Subjects' }, ...subjects],
     debug: {
-      dbPath: getDbPath(),
-      rowCount: rows.length,
-      searchLog: getDbResolutionLog(),
+      connection: getConnectionInfo(),
+      rowCount: subjects.length,
     },
   });
 }

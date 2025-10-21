@@ -1,15 +1,15 @@
-"""Retrieve context from local vector store and generate MCQs via Azure OpenAI (two resources: embeddings + chat),
+"""Retrieve context from Qdrant and generate MCQs via Azure OpenAI (two resources: embeddings + chat),
 with richer logging and optional topic inference (no --topic required)."""
 from __future__ import annotations
 
-import os, argparse, json, time, logging, sqlite3
+import os, argparse, json, time, logging
 from typing import List, Optional
 from dotenv import load_dotenv
 from openai import AzureOpenAI
 import numpy as np
 
-from vector_store import LocalVectorStore
-from question_db import insert_mcq_batch
+from vector_store import QdrantVectorStore
+from question_db import insert_mcq_batch, list_subject_topics
 
 load_dotenv(".env.ai", override=True)
 
@@ -125,26 +125,13 @@ def chat_client() -> AzureOpenAI:
 
 def get_existing_topics(subject: str) -> List[str]:
     """Best-effort: read distinct topics already saved for this subject (if any)."""
-    db_path = os.getenv("QUESTIONS_DB", "ops/data/questions.sqlite3")
-    if not os.path.exists(db_path):
-        return []
     try:
-        cx = sqlite3.connect(db_path)
-        cur = cx.execute("""
-            SELECT DISTINCT q.topic
-            FROM questions q
-            JOIN subjects s ON s.id = q.subject_id
-            WHERE s.name = ?
-            ORDER BY q.topic
-            LIMIT 50
-        """, (subject,))
-        topics = [r[0] for r in cur.fetchall() if r and r[0]]
-        cx.close()
-        return topics
+        return list_subject_topics(subject)
     except Exception:
+        logging.exception("Failed to load existing topics for subject=%s", subject)
         return []
 
-def build_context(store: LocalVectorStore, subject: str, cli_emb: AzureOpenAI,
+def build_context(store: QdrantVectorStore, subject: str, cli_emb: AzureOpenAI,
                   top_k: int, topic: Optional[str], emb_deploy: str) -> tuple[str, List[str], np.ndarray]:
     """
     Returns (context_str, refs, query_vector).
@@ -169,8 +156,11 @@ def build_context(store: LocalVectorStore, subject: str, cli_emb: AzureOpenAI,
     refs: List[str] = []
     for i, h in enumerate(hits):
         snippet = (h.get("text") or "")[:1200]
-        ctx_lines.append(f"[{i+1}] {h['source_path']}#p{h['page']}\n{snippet}")
-        refs.append(f"{h['source_path']}#p{h['page']}")
+        src = h.get("source_path") or "material"
+        page = h.get("page")
+        page_fragment = f"p{page}" if page is not None else "p?"
+        ctx_lines.append(f"[{i+1}] {src}#{page_fragment}\n{snippet}")
+        refs.append(f"{src}#{page_fragment}")
     context = "\n\n".join(ctx_lines)
     logging.info("Built context from %d hits.", len(hits))
     return (context, refs, np.asarray(qvec, dtype=np.float32))
@@ -184,6 +174,11 @@ def main():
     ap.add_argument("--temperature", type=float, default=0.2)
     ap.add_argument("--chat-deploy", default=os.getenv("AOAI_CHAT_DEPLOYMENT", "mcqgenerate"))
     ap.add_argument("--emb-deploy", default=os.getenv("AOAI_EMBEDDINGS_DEPLOYMENT", "embed-sqe"))
+    ap.add_argument(
+        "--collection",
+        default=os.getenv("QDRANT_COLLECTION"),
+        help="Override Qdrant collection name (defaults to QDRANT_COLLECTION env or 'sqe1_material').",
+    )
     ap.add_argument("--debug", action="store_true", help="Enable verbose logging and save prompt/response.")
     args = ap.parse_args()
 
@@ -195,7 +190,7 @@ def main():
 
     cli_emb = embed_client()
     cli_chat = chat_client()
-    store = LocalVectorStore()
+    store = QdrantVectorStore(collection=args.collection or os.getenv("QDRANT_COLLECTION", "sqe1_material"))
 
     # 1) Retrieve context
     context, refs, _qvec = build_context(store, args.subject, cli_emb, args.top_k, args.topic, args.emb_deploy)
