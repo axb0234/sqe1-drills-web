@@ -159,13 +159,12 @@ async function ensureSchema(): Promise<void> {
   await schemaPromise;
 }
 
-// AFTER (fix)
-export async function query<T>(
+export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: ReadonlyArray<unknown>
 ): Promise<QueryResult<T>> {
   await ensureSchema();
-  const values = params === undefined ? undefined : Array.from(params) as any[];
+  const values = params == null ? undefined : (Array.from(params) as any[]);
   return getPool().query<T>(text, values);
 }
 
