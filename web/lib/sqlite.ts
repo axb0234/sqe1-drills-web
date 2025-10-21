@@ -1,4 +1,7 @@
-import Database from 'better-sqlite3';
+import type BetterSqlite3 from 'better-sqlite3';
+// Use require at runtime, but keep type safety from @types/better-sqlite3
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const Database: typeof BetterSqlite3 = require('better-sqlite3');
 import fs from 'fs';
 import path from 'path';
 
