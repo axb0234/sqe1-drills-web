@@ -6,14 +6,13 @@ This directory contains Python utilities that support the nightly SQE1 MCQ gener
 
 | Script | Purpose |
 | --- | --- |
-| `vectorize_pdfs.py` | Vectorises subject PDF files into an on-disk vector store (SQLite + NumPy embeddings). |
-| `generate_questions.py` | Calls Azure OpenAI to create SQE1-style MCQs using the vectorised material as context and saves them into the local question bank database. |
+| `vectorize_pdfs.py` | Vectorises subject PDF files and upserts embeddings into the shared Qdrant vector database. |
+| `generate_questions.py` | Calls Azure OpenAI to create SQE1-style MCQs using retrieved context and stores them in the Postgres question bank. |
 
 Supporting modules:
 
-* `question_db.py` — schema helpers for the SQLite question bank (`tests`, `subjects`, `questions`, `choices`). The `questions`
-  table also tracks an `is_active` flag so individual questions can be retired without deletion.
-* `vector_store.py` — wrapper around the embedding store that keeps chunk metadata per subject.
+* `question_db.py` — helpers for creating and writing to the Postgres schema (`subjects`, `questions`, `choices`, `drill_sessions`, `drill_items`). Questions include an `is_active` flag so they can be retired without deletion.
+* `vector_store.py` — thin wrapper around Qdrant that manages collection creation and search for subject-specific chunks.
 
 ## Python Environment
 
@@ -32,32 +31,44 @@ If you prefer not to use a virtual environment, add the `pip install` command di
 
 The scripts rely on the following libraries:
 
-* `openai` — Azure OpenAI Chat Completions client.
-* `sentence-transformers` — generates dense embeddings for PDF chunks.
+* `openai` — Azure OpenAI Chat Completions + Embeddings clients.
 * `pypdf` — extracts text from PDF files.
 * `numpy` — stores embeddings and performs vector operations.
+* `tiktoken` — token-aware chunking of long PDF pages.
+* `tenacity` — retry helper for embedding requests.
+* `psycopg` — Postgres driver used by `question_db.py`.
+* `qdrant-client` — client library for the Qdrant vector database.
+* `python-dotenv` — loads `.env.ai` with Azure credentials.
 
-These are listed in `ops/scripts/requirements.txt` for convenience.
+All dependencies are listed in `ops/scripts/requirements.txt`.
 
 ## Vectorising PDFs
 
-Run the vectorisation script whenever PDFs are added or updated for a subject. The script calculates a checksum for each PDF and re-embeds it only when the file changes.
+Run the vectorisation script whenever PDFs are added or updated for a subject. Each chunk is written to Qdrant using a deterministic ID, so re-running the script overwrites stale entries automatically.
 
 ```bash
 source ~/.venvs/sqe1/bin/activate
-python ops/scripts/vectorize_pdfs.py "Criminal" /srv/sqe1prep/content/Criminal ops/data/vector_store.db \
-  --model sentence-transformers/all-MiniLM-L6-v2 --chunk-size 180 --overlap 40
+python ops/scripts/vectorize_pdfs.py \
+  --subject "Criminal" \
+  --pdfs-dir /srv/sqe1prep/content/Criminal \
+  --max-tokens 180 \
+  --overlap 40 \
+  --collection sqe1_material
 ```
 
-* `subject` — label stored in the vector DB (matches the subject name in the question bank).
-* `pdf_dir` — directory containing PDFs for that subject.
-* `vector_db` — path to the SQLite-backed embedding store (created automatically if missing).
+Key options:
 
-The script emits INFO logs summarising how many chunks were generated per PDF.
+* `--subject` — label stored in Qdrant (matches the subject name in the question bank).
+* `--pdfs-dir` — directory containing PDFs for that subject.
+* `--collection` — optional override; defaults to the `QDRANT_COLLECTION` environment variable or `sqe1_material`.
+* `--emb-deploy` — Azure OpenAI embedding deployment name (defaults to `AOAI_EMBEDDINGS_DEPLOYMENT`).
 
-### Incremental Updates
+Qdrant connectivity comes from environment variables:
 
-Checksums and chunk counts are stored in the `files` table. If a PDF is unchanged since the last run, the stored embeddings are reused. New or modified PDFs replace their previous chunk entries automatically.
+* `QDRANT_URL` or (`QDRANT_HOST` + `QDRANT_PORT`) — endpoint of the cluster (on the server, `QDRANT_HOST=qdrant`, `QDRANT_PORT=6333`).
+* `QDRANT_API_KEY` — only needed if auth is enabled (not required for the internal Docker network).
+
+The script logs how many chunks were embedded per PDF.
 
 ## Generating Questions
 
@@ -69,41 +80,39 @@ export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com"
 export AZURE_OPENAI_KEY="<api-key>"
 export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
 export AZURE_OPENAI_API_VERSION="2024-02-01"
-python ops/scripts/generate_questions.py "Criminal" \
-  --db-path ops/data/questions.db \
-  --vector-db ops/data/vector_store.db \
-  --count 20 \
-  --context-chunks 4
+python ops/scripts/generate_questions.py \
+  --subject "Criminal" \
+  --n 20 \
+  --top-k 12 \
+  --collection sqe1_material
 ```
 
 Key behaviours:
 
-* Ensures the `SQE1` test and the specified subject exist in the SQLite database.
-* Pulls recent question stems for the subject and instructs Azure OpenAI not to duplicate them.
-* Selects random context chunks from the vector store to ground each question.
-* Parses the model’s JSON response, validates the shape, enforces five answer options and per-choice explanations, and stores the result.
-* Skips duplicates by hashing the question stem before insertion.
+* Ensures the required Postgres tables exist and upserts the subject row.
+* Retrieves distinct existing topics for the subject to avoid duplication.
+* Selects random context chunks from Qdrant to ground each question.
+* Parses the model’s JSON response, enforces five options with per-choice rationales, and writes the results to Postgres (including JSON `source_refs`).
+* Skips inserts gracefully if the response is invalid.
 
 If fewer than the requested questions can be generated (because of duplicate responses or API issues), the script logs a warning with the number actually created.
 
-## Database Files
+## Datastores
 
-* `ops/data/vector_store.db` — stores embeddings per subject/PDF.
-* `ops/data/questions.db` — stores the MCQ bank (`tests`, `subjects`, `questions`, `choices`).
-
-Create regular backups of these SQLite files as part of your ops process.
+* **Postgres (`sqe1` database, user `app`)** — persists subjects, questions, choices, drill sessions, and drill items. Configure access via `DATABASE_URL` or the `PG*`/`APP_DB_*` environment variables before running the scripts.
+* **Qdrant** — stores embeddings for all subjects inside the `sqe1_material` collection (override with `QDRANT_COLLECTION`).
 
 ### Retiring Questions
 
-To hide a question from the drill UI without deleting it, update its `is_active` flag:
+To hide a question from the drill UI without deleting it, update its `is_active` flag in Postgres:
 
 ```bash
-sqlite3 ops/data/questions.db <<'SQL'
-UPDATE questions SET is_active = 0 WHERE id = <question_id>;
+psql "$DATABASE_URL" <<'SQL'
+UPDATE questions SET is_active = FALSE WHERE id = <question_id>;
 SQL
 ```
 
-Setting the flag back to `1` re-enables the question. New insertions default to `is_active = 1`.
+Setting the flag back to `TRUE` re-enables the question. New insertions default to `TRUE`.
 
 ## Cron Example
 
@@ -115,7 +124,8 @@ Add an entry similar to the following (adjust paths/user as needed):
   export AZURE_OPENAI_KEY="<api-key>" && \
   export AZURE_OPENAI_DEPLOYMENT="gpt-4o" && \
   export AZURE_OPENAI_API_VERSION="2024-02-01" && \
-  python ops/scripts/generate_questions.py "Criminal" --count 25 --context-chunks 5 >> $HOME/logs/sqe1_cron.log 2>&1
+  DATABASE_URL="postgresql://app:***@db:5432/sqe1" \
+  python ops/scripts/generate_questions.py --subject "Criminal" --n 25 --top-k 12 >> $HOME/logs/sqe1_cron.log 2>&1
 ```
 
 Run the vectorisation script manually (or on a separate schedule) whenever study materials change.

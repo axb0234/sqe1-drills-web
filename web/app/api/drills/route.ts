@@ -1,6 +1,6 @@
 export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '../../../lib/sqlite';
+import { query, withTransaction } from '../../../lib/db';
 import { readServerUser } from '../../../lib/user';
 import crypto from 'crypto';
 
@@ -16,50 +16,69 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid length' }, { status: 400 });
   }
 
-  const db = getDb();
   const sid = crypto.randomUUID();
 
-  const seen = db.prepare(`
-    SELECT DISTINCT di.question_id
-    FROM drill_items di
-    JOIN drill_sessions ds ON ds.id = di.session_id
-    WHERE ds.user_id = ?
-  `).all(u.sub).map((r: any) => r.question_id);
+  const seenRes = await query<{ question_id: number }>(
+    `SELECT DISTINCT di.question_id
+       FROM drill_items di
+       JOIN drill_sessions ds ON ds.id = di.session_id
+      WHERE ds.user_id = $1`,
+    [u.sub]
+  );
+  const seen = seenRes.rows.map((r: { question_id: number }) => Number(r.question_id));
 
-  const notIn = seen.length ? `AND q.id NOT IN (${seen.map(() => '?').join(',')})` : '';
-  const params: any[] = [];
+  let whereClause = 'WHERE q.is_active = TRUE';
+  const params: Array<number | number[]> = [];
+  let paramIndex = 1;
 
-  let where = 'WHERE q.is_active = 1 ';
   if (typeof subject === 'number' || /^[0-9]+$/.test(String(subject))) {
-    where += 'AND q.subject_id = ? ';
+    whereClause += ` AND q.subject_id = $${paramIndex++}`;
     params.push(Number(subject));
   }
-  if (seen.length) params.push(...seen);
 
-  const sampleIds = db.prepare(`
+  if (seen.length) {
+    whereClause += ` AND NOT (q.id = ANY($${paramIndex++}::int[]))`;
+    params.push(seen);
+  }
+
+  const limitIdx = paramIndex++;
+  const sampleQuery = `
     SELECT q.id
-    FROM questions q
-    ${where}
-    ${notIn}
-    ORDER BY RANDOM()
-    LIMIT ?
-  `).all(...params, length).map((r: any) => r.id);
+      FROM questions q
+      ${whereClause}
+      ORDER BY RANDOM()
+      LIMIT $${limitIdx}
+  `;
+  const sampleRes = await query<{ id: number }>(sampleQuery, [...params, length]);
+  const sampleIds = sampleRes.rows.map((r: { id: number }) => Number(r.id));
 
   if (sampleIds.length < length) {
     return NextResponse.json({
       error: 'Not enough unseen questions in this subject. Try a smaller length.',
-      available: sampleIds.length
+      available: sampleIds.length,
     }, { status: 400 });
   }
 
-  const tx = db.transaction(() => {
-    db.prepare(`INSERT INTO drill_sessions (id, user_id, subject, total) VALUES (?, ?, ?, ?)`)
-      .run(sid, u.sub, String(subject), length);
+  await withTransaction(async (client) => {
+    await client.query(
+      'INSERT INTO drill_sessions (id, user_id, subject, total) VALUES ($1, $2, $3, $4)',
+      [sid, u.sub, String(subject), length]
+    );
 
-    const ins = db.prepare(`INSERT INTO drill_items (session_id, order_index, question_id) VALUES (?, ?, ?)`);
-    sampleIds.forEach((qid: number, idx: number) => ins.run(sid, idx + 1, qid));
+    const values: string[] = [];
+    const insertParams: Array<string | number> = [sid];
+    let insertIdx = 2;
+    sampleIds.forEach((qid: number, orderIdx: number) => {
+      values.push(`($1, $${insertIdx}, $${insertIdx + 1})`);
+      insertParams.push(orderIdx + 1, qid);
+      insertIdx += 2;
+    });
+
+    await client.query(
+      `INSERT INTO drill_items (session_id, order_index, question_id) VALUES ${values.join(', ')}`,
+      insertParams
+    );
   });
-  tx();
 
   return NextResponse.json({ sid });
 }
