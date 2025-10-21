@@ -17,32 +17,38 @@ LOG_DIR = "ops/logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 
 SYSTEM_PROMPT = """You are an SQE1 item writer.
-Produce SINGLE-BEST-ANSWER multiple-choice questions (MCQs) in the exact structure:
-1) A concise, realistic FACTUAL SCENARIO (sets the scene).
-2) A QUESTION STEM that asks for the single best answer about the scenario.
-3) FIVE OPTIONS, labelled A–E, where only ONE is the single best answer.
-   - Each distractor must be plausible and differ by a subtle point of law (modal verbs,
-     qualifiers, scope, or a misapplied test), not obviously wrong.
-   - Avoid “All/None of the above”. Avoid trivia; focus on examinable rules.
 
-Style and constraints (SQE1):
-- UK terminology and authorities. No new facts beyond the scenario. No ambiguity.
-- Scenario: ~40–120 words; no irrelevant detail. Stem: a single sentence.
-- Options: short, parallel, legally precise. Exactly one correct.
-- Output STRICT JSON (see schema below). Provide a 1–2 sentence rationale for the correct
-  option and a 1–2 sentence rationale for EACH incorrect option explaining the precise error
-  (wrong test, wrong standard, missing element, wrong outcome, etc.).
+GOAL
+- Produce SINGLE-BEST-ANSWER MCQs in two types:
+  1) SCENARIO-APPLICATION (case vignette + legal application)  ← target ≈80%
+  2) FACTUAL-RECALL (black-letter rule/definition/element)     ← target ≈20%
 
-If the user topic is “INFER” or not supplied:
-- Infer a concise, exam-relevant topic title (<= 60 chars) from the CONTEXT EXTRACTS.
-- Set "topic" in the JSON to that inferred title.
+TOPIC SELECTION (with hints)
+- You may be given a list of EXISTING TOPIC HINTS (aliases/labels already used in the DB).
+- If one hint closely matches the CONTEXT EXTRACTS, use that hint EXACTLY as the "topic".
+- If none fits well, infer a concise, exam-relevant topic title (≤ 60 chars) from the CONTEXT EXTRACTS.
+- Never force a hint that doesn’t match. Accuracy over reuse.
 
-JSON schema to return:
+STRUCTURE (for EVERY item)
+1) A concise, realistic FACTUAL SCENARIO when qtype="scenario" (≈40–120 words, only material facts).
+2) A QUESTION STEM: one sentence asking for the single best answer.
+3) FIVE OPTIONS A–E: short, parallel, legally precise.
+   - Exactly ONE is the single best answer.
+   - Distractors are plausible and differ by a subtle point of law (modal verbs, scope,
+     missing element, wrong test, misapplied standard). Avoid “All/None of the above”.
+
+STYLE / GUARDRAILS
+- Use UK terminology and authorities. No new facts beyond the scenario. No ambiguity.
+- Provide rationales: 1–2 sentences for the correct option and 1–2 sentences for EACH incorrect option,
+  explicitly stating the precise error.
+
+OUTPUT: STRICT JSON (extra field "qtype" is REQUIRED)
 {
   "topic": "<string>",
   "questions": [
     {
-      "stem": "<string>",
+      "qtype": "scenario" | "recall",
+      "stem": "<string>",                # include scenario text at the start when qtype="scenario"
       "options": ["<A>","<B>","<C>","<D>","<E>"],
       "answer_index": <0-4>,
       "rationale_correct": "<string>",
@@ -58,62 +64,49 @@ JSON schema to return:
   ]
 }
 
-EXAMPLES (format + tone):
+EXAMPLES (abbreviated)
 
-Example 1 (Criminal Law — Recklessness):
+Example A — SCENARIO-APPLICATION (Criminal: Recklessness)
 {
   "topic": "Battery: Recklessness (Subjective Test)",
-  "questions": [
-    {
-      "stem": "Which option states the correct test for recklessness in battery on these facts?",
-      "options": [
-        "There must be a risk of force and a reasonable person would have foreseen it and taken it.",
-        "There must be a risk of force and the defendant should have foreseen it and unjustifiably taken it.",
-        "There must be a risk of force and the defendant actually foresaw that risk yet went on unreasonably to take it.",
-        "There must be a risk of force that both the defendant and a reasonable person would have foreseen.",
-        "There must be a risk of force, but foresight is unnecessary if the outcome occurs."
-      ],
-      "answer_index": 2,
-      "rationale_correct": "Recklessness for battery is subjective: the defendant must actually appreciate a risk of applying unlawful force and nonetheless unreasonably take that risk on the facts.",
-      "rationale_incorrect": {
-        "A": "Imports a purely objective yardstick; subjective appreciation by the defendant is required.",
-        "B": "Uses 'should' (objective). The test turns on the defendant’s actual foresight.",
-        "C": "—",
-        "D": "Combines subjective and objective elements; only the defendant’s foresight is essential.",
-        "E": "Removes the foresight element altogether, which is incorrect."
-      },
-      "source_refs": ["intro_to_crim.pdf#p12"]
-    }
-  ]
+  "questions": [{
+    "qtype": "scenario",
+    "stem": "A woman throws a small rock to scare a passer-by; it grazes their head without injury. She denies intending contact. Prosecutors allege recklessness. Which statement is the correct legal test for recklessness in battery on these facts?",
+    "options": [
+      "Risk judged by a reasonable person is sufficient.",
+      "She should have foreseen the risk and took it.",
+      "She actually foresaw a risk of unlawful force yet unreasonably took it.",
+      "Both she and a reasonable person must have foreseen the risk.",
+      "Foresight is unnecessary if contact occurs."
+    ],
+    "answer_index": 2,
+    "rationale_correct": "The test is subjective: the defendant must actually appreciate the risk and proceed unreasonably.",
+    "rationale_incorrect": {"A":"Purely objective standard.","B":"'Should' is objective; foresight must be actual.","C":"—","D":"Adds an unnecessary objective limb.","E":"Eliminates foresight entirely."},
+    "source_refs": ["intro_to_crim.pdf#p12"]
+  }]
 }
 
-Example 2 (Contract — Consideration: Part-payment of a debt):
+Example B — FACTUAL-RECALL (Contract: Part-payment of a debt)
 {
-  "topic": "Consideration: Part-Payment of a Debt",
-  "questions": [
-    {
-      "stem": "A creditor agrees in writing to accept £8,000 now in full satisfaction of a due £10,000. No fresh benefit is provided. Which option is the best statement of the legal effect?",
-      "options": [
-        "The agreement is binding because practical benefits to the creditor are always sufficient consideration.",
-        "The agreement is binding if made in writing, as written promises are enforceable without consideration.",
-        "It is not binding absent fresh consideration; part-payment of a debt does not discharge the balance.",
-        "It is binding because early payment is automatically good consideration.",
-        "It is binding unless the debtor acted under economic duress."
-      ],
-      "answer_index": 2,
-      "rationale_correct": "Part-payment alone does not discharge the balance without fresh consideration or a recognised exception; mere writing does not cure the lack of consideration.",
-      "rationale_incorrect": {
-        "A": "Practical benefit reasoning is not a blanket rule for debts; part-payment cases are treated differently.",
-        "B": "A promise in writing still requires consideration unless made by deed or falling within a statutory exception.",
-        "C": "—",
-        "D": "Early payment can be good consideration only if genuinely earlier than due and bargained for; not automatic.",
-        "E": "Duress concerns validity but does not supply consideration to bind the creditor to accept less."
-      },
-      "source_refs": ["contract_notes.pdf#p34"]
-    }
-  ]
+  "topic": "Consideration: Part-payment of a Debt",
+  "questions": [{
+    "qtype": "recall",
+    "stem": "Which statement best reflects the rule on part-payment of a debt?",
+    "options": [
+      "A part-payment agreement is binding if in writing.",
+      "Part-payment alone does not discharge the balance absent fresh consideration or an exception.",
+      "Practical benefit always suffices as consideration for debts.",
+      "Early payment automatically provides good consideration.",
+      "It is binding unless the creditor acts under duress."
+    ],
+    "answer_index": 1,
+    "rationale_correct": "Part-payment without fresh consideration does not discharge the balance unless a recognised exception applies.",
+    "rationale_incorrect": {"A":"Writing alone is insufficient absent deed/statute.","B":"—","C":"Not a blanket rule for debt cases.","D":"Only if genuinely earlier/bargained for.","E":"Duress affects validity, not consideration."},
+    "source_refs": ["contract_notes.pdf#p34"]
+  }]
 }
 """
+
 
 
 def embed_client() -> AzureOpenAI:
@@ -211,20 +204,32 @@ def main():
     existing_topics = get_existing_topics(args.subject)
     hints_block = ""
     if existing_topics:
-        hints_block = "Existing topics in DB (optional hints; choose a new one if appropriate):\n- " + "\n- ".join(existing_topics[:20])
+        hints_block = "EXISTING TOPIC HINTS (use exact text if a hint fits well):\n- " + "\n- ".join(existing_topics[:20])
 
     # 3) Build prompt
-    requested_topic = args.topic if args.topic else "INFER"  # tells the model to infer if missing
+    requested_topic = args.topic if args.topic else "INFER"
+
     user_prompt = f"""Subject: {args.subject}
-Topic: {requested_topic}
-Draft {args.n} SINGLE-BEST-ANSWER MCQs following the structure and constraints. Use only what is relevant from CONTEXT EXTRACTS. If Topic is INFER, infer a concise, exam-relevant title from the extracts and set it in the JSON. 
-If possible consider the existing topics in the DB and use one of those as a topic if it matches.
+    Topic: {requested_topic}
 
-{hints_block}
+    Produce exactly {args.n} SINGLE-BEST-ANSWER items with this mix:
+    - SCENARIO-APPLICATION: ≈80%
+    - FACTUAL-RECALL: ≈20%
 
-CONTEXT EXTRACTS:
-{context}
-"""
+    RULES
+    - If Topic is INFER, first try to match one of the EXISTING TOPIC HINTS below to the CONTEXT EXTRACTS.
+      If a hint matches closely, use that hint EXACTLY as the "topic".
+      If none fits, infer a concise exam-relevant topic (≤ 60 chars) and use that.
+    - For qtype="scenario", embed a 40–120 word realistic vignette at the start of the stem.
+    - For qtype="recall", do not add a scenario; test the rule/elements cleanly.
+    - Use only what is relevant from CONTEXT EXTRACTS. No new facts beyond the scenario.
+
+    {hints_block}
+
+    CONTEXT EXTRACTS:
+    {context}
+    """
+
 
     # Save prompt (for prompt-eng analysis)
     ts = int(time.time())
