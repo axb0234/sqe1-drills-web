@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     const values: string[] = [];
     const insertParams: any[] = [sid];
     let insertIdx = 2;
-    sampleIds.forEach((qid, orderIdx) => {
+    sampleIds.forEach((qid: number, orderIdx: number) => {
       values.push(`($1, $${insertIdx}, $${insertIdx + 1})`);
       insertParams.push(orderIdx + 1, qid);
       insertIdx += 2;
