@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 function getExternalOrigin(req: NextRequest) {
   const xfProto = req.headers.get('x-forwarded-proto');
   const xfHost  = req.headers.get('x-forwarded-host');
