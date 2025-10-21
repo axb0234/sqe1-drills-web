@@ -102,7 +102,7 @@ export async function GET(_: NextRequest, { params }: { params: { sid: string } 
     'SELECT label, text, rationale FROM choices WHERE question_id = $1 ORDER BY label ASC',
     [q.id]
   );
-  const choices = choicesRes.rows.map((c) => ({
+  const choices = choicesRes.rows.map((c: ChoiceRow) => ({
     label: c.label,
     text: c.text,
     rationale: c.rationale ?? '',
