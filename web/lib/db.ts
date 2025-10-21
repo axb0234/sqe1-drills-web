@@ -1,4 +1,4 @@
-import { Pool, PoolClient, PoolConfig, QueryResult } from 'pg';
+import { Pool, PoolClient, PoolConfig, QueryResult, QueryResultRow } from 'pg';
 
 type ResolvedConfig = {
   connectionString?: string;
@@ -159,7 +159,10 @@ async function ensureSchema(): Promise<void> {
   await schemaPromise;
 }
 
-export async function query<T = Record<string, unknown>>(text: string, params?: readonly unknown[]): Promise<QueryResult<T>> {
+export async function query<T extends QueryResultRow = QueryResultRow>(
+  text: string,
+  params?: readonly unknown[],
+): Promise<QueryResult<T>> {
   await ensureSchema();
   return getPool().query<T>(text, params);
 }
