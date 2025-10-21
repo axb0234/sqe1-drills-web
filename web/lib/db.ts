@@ -164,8 +164,10 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   params?: readonly unknown[],
 ): Promise<QueryResult<T>> {
   await ensureSchema();
-  return getPool().query<T>(text, params);
+  const values = params == null ? undefined : (Array.from(params) as any[]);
+  return getPool().query<T>(text, values);
 }
+
 
 export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
   await ensureSchema();
