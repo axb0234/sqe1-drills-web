@@ -11,15 +11,44 @@ declare global {
 }
 
 function resolveDbPath(): string {
-  const env = process.env.QUESTIONS_DB?.trim();
-  if (env) return env;
+  const directEnv = process.env.QUESTIONS_DB?.trim();
+  if (directEnv) return directEnv;
 
-  // Repo layout: app runs from /web, DB lives in ../ops/data
-  const p1 = path.resolve(process.cwd(), '..', 'ops', 'data', 'questions.sqlite3');
-  if (fs.existsSync(path.dirname(p1))) return p1;
+  const dirEnv = process.env.QUESTIONS_DB_DIR?.trim();
+  if (dirEnv) return path.resolve(dirEnv, 'questions.sqlite3');
 
-  // Container fallback (e.g., WORKDIR=/app/web)
-  return '/app/ops/data/questions.sqlite3';
+  const candidateBases = new Set<string>();
+
+  // Walk up from the current working directory so the helper can run from
+  // either the repo root, the web/ directory, or a packaged build output.
+  let cursor = process.cwd();
+  while (!candidateBases.has(cursor)) {
+    candidateBases.add(path.resolve(cursor, 'ops', 'data'));
+    candidateBases.add(path.resolve(cursor, 'app', 'ops', 'data'));
+    candidateBases.add(
+      path.resolve(cursor, 'app', 'sqe1-drills-web', 'ops', 'data'),
+    );
+    candidateBases.add(path.resolve(cursor, 'sqe1-drills-web', 'ops', 'data'));
+
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+
+  // Known deployment targets.
+  candidateBases.add('/srv/sqe1prep/app/sqe1-drills-web/ops/data');
+  candidateBases.add('/app/ops/data');
+
+  let fallback: string | undefined;
+  for (const base of candidateBases) {
+    const filePath = path.join(base, 'questions.sqlite3');
+    if (fs.existsSync(filePath)) return filePath;
+    if (!fallback && fs.existsSync(base)) fallback = filePath;
+  }
+
+  // Default to the historical relative location so local development can
+  // create a new database if needed.
+  return fallback ?? path.resolve(process.cwd(), '..', 'ops', 'data', 'questions.sqlite3');
 }
 
 const DB_PATH = resolveDbPath();
