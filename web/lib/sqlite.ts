@@ -5,17 +5,44 @@ import fs from 'fs';
 import path from 'path';
 
 type DBT = BetterSqlite3Database;
+
+type DbSearchProbe = {
+  base: string;
+  filePath: string;
+  baseExists: boolean;
+  fileExists: boolean;
+};
+
+let lastSearchLog: DbSearchProbe[] = [];
 declare global {
   // eslint-disable-next-line no-var
   var __sqe_db__: DBT | undefined;
 }
 
 function resolveDbPath(): string {
+  const searchLog: DbSearchProbe[] = [];
+
   const directEnv = process.env.QUESTIONS_DB?.trim();
-  if (directEnv) return directEnv;
+  if (directEnv) {
+    const base = path.dirname(directEnv);
+    const baseExists = fs.existsSync(base);
+    const fileExists = fs.existsSync(directEnv);
+    lastSearchLog = [
+      { base, filePath: directEnv, baseExists, fileExists },
+    ];
+    return directEnv;
+  }
 
   const dirEnv = process.env.QUESTIONS_DB_DIR?.trim();
-  if (dirEnv) return path.resolve(dirEnv, 'questions.sqlite3');
+  if (dirEnv) {
+    const filePath = path.resolve(dirEnv, 'questions.sqlite3');
+    const baseExists = fs.existsSync(dirEnv);
+    const fileExists = fs.existsSync(filePath);
+    lastSearchLog = [
+      { base: dirEnv, filePath, baseExists, fileExists },
+    ];
+    return filePath;
+  }
 
   const candidateBases = new Set<string>();
 
@@ -37,24 +64,44 @@ function resolveDbPath(): string {
 
   // Known deployment targets.
   candidateBases.add('/srv/sqe1prep/app/sqe1-drills-web/ops/data');
+  candidateBases.add('/srv/sqe1prep/app/sqe-drills-web/ops/data');
   candidateBases.add('/app/ops/data');
 
   let fallback: string | undefined;
   for (const base of candidateBases) {
     const filePath = path.join(base, 'questions.sqlite3');
-    if (fs.existsSync(filePath)) return filePath;
-    if (!fallback && fs.existsSync(base)) fallback = filePath;
+    const baseExists = fs.existsSync(base);
+    const fileExists = fs.existsSync(filePath);
+    searchLog.push({ base, filePath, baseExists, fileExists });
+    if (fileExists) {
+      lastSearchLog = searchLog;
+      return filePath;
+    }
+    if (!fallback && baseExists) fallback = filePath;
   }
 
   // Default to the historical relative location so local development can
   // create a new database if needed.
-  return fallback ?? path.resolve(process.cwd(), '..', 'ops', 'data', 'questions.sqlite3');
+  const resolvedFallback =
+    fallback ?? path.resolve(process.cwd(), '..', 'ops', 'data', 'questions.sqlite3');
+  searchLog.push({
+    base: path.dirname(resolvedFallback),
+    filePath: resolvedFallback,
+    baseExists: fs.existsSync(path.dirname(resolvedFallback)),
+    fileExists: fs.existsSync(resolvedFallback),
+  });
+  lastSearchLog = searchLog;
+  return resolvedFallback;
 }
 
 const DB_PATH = resolveDbPath();
 
 export function getDbPath(): string {
   return DB_PATH;
+}
+
+export function getDbResolutionLog(): DbSearchProbe[] {
+  return lastSearchLog;
 }
 
 function migrate(db: DBT) {

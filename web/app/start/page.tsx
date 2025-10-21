@@ -7,6 +7,13 @@ import { AuthContext } from '../../components/AuthProvider';
 
 type Subject = { id: string | number; name: string };
 
+type DbSearchProbe = {
+  base: string;
+  filePath: string;
+  baseExists: boolean;
+  fileExists: boolean;
+};
+
 const ALL_SUBJECT_OPTION: Subject = { id: 'ALL', name: 'ALL Subjects' };
 
 function ensureAllSubjectOption(list: Subject[]): Subject[] {
@@ -30,6 +37,21 @@ function safeCommentContent(value: string): string {
 
 function getFallbackSubjects(): Subject[] {
   return ensureAllSubjectOption([]);
+}
+
+function summarizeSearchLog(log?: DbSearchProbe[]): string {
+  if (!log?.length) return 'no search log available';
+
+  const formatEntry = (entry: DbSearchProbe) =>
+    `${entry.fileExists ? '✓' : entry.baseExists ? '·' : '✗'} ${entry.filePath}`;
+
+  const interesting = log
+    .filter((entry) => entry.fileExists || entry.baseExists)
+    .map(formatEntry);
+
+  const source = interesting.length ? interesting : log.map(formatEntry);
+
+  return source.slice(0, 5).join('; ');
 }
 
 export default function StartPage() {
@@ -75,7 +97,11 @@ export default function StartPage() {
 
         const data = parsed as {
           subjects?: Subject[];
-          debug?: { dbPath?: string; rowCount?: number };
+          debug?: {
+            dbPath?: string;
+            rowCount?: number;
+            searchLog?: DbSearchProbe[];
+          };
         };
 
         const nextSubjects = Array.isArray(data.subjects)
@@ -89,8 +115,10 @@ export default function StartPage() {
 
         const dbPathInfo = data.debug?.dbPath ?? 'unknown path';
         const rowsInfo = data.debug?.rowCount ?? nextSubjects.length;
+        console.debug('StartPage database search log', data.debug?.searchLog);
+        const searchInfo = summarizeSearchLog(data.debug?.searchLog);
         setDebugInfo(
-          `Fetched ${nextSubjects.length} subject option(s) (status ${res.status}; rows ${rowsInfo}; db ${dbPathInfo}).`,
+          `Fetched ${nextSubjects.length} subject option(s) (status ${res.status}; rows ${rowsInfo}; db ${dbPathInfo}; search ${searchInfo}).`,
         );
       } catch (err) {
         console.error('Failed to load /api/subjects', err);

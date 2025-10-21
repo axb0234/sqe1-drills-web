@@ -1,6 +1,6 @@
 export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
-import { getDb, getDbPath } from '../../../lib/sqlite';
+import { getDb, getDbPath, getDbResolutionLog } from '../../../lib/sqlite';
 
 export async function GET() {
   const db = getDb();
@@ -13,6 +13,7 @@ export async function GET() {
     debug: {
       dbPath: getDbPath(),
       rowCount: rows.length,
+      searchLog: getDbResolutionLog(),
     },
   });
 }
