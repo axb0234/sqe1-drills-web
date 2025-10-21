@@ -1,9 +1,9 @@
-"""Retrieve context from local vector store and generate MCQs via Azure OpenAI."""
+"""Retrieve context from local vector store and generate MCQs via Azure OpenAI (two resources: embeddings + chat)."""
 from __future__ import annotations
-import os, argparse, json, time, textwrap
+import os, argparse, json, time
 from typing import List
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AzureOpenAI
 import numpy as np
 
 from vector_store import LocalVectorStore
@@ -38,10 +38,21 @@ Return STRICT JSON:
 }
 """
 
-def azure_client() -> OpenAI:
-    endpoint = os.environ["AZURE_OPENAI_ENDPOINT"].rstrip("/")
-    key = os.environ["AZURE_OPENAI_API_KEY"]
-    return OpenAI(api_key=key, base_url=f"{endpoint}/openai/v1")
+def embed_client() -> AzureOpenAI:
+    """Client for the embeddings resource."""
+    return AzureOpenAI(
+        api_key=os.environ["AOAI_EMBEDDINGS_KEY"],
+        azure_endpoint=os.environ["AOAI_EMBEDDINGS_ENDPOINT"].rstrip("/"),
+        api_version=os.getenv("AOAI_EMBEDDINGS_API_VERSION", "2024-12-01-preview"),
+    )
+
+def chat_client() -> AzureOpenAI:
+    """Client for the chat/completions resource."""
+    return AzureOpenAI(
+        api_key=os.environ["AOAI_CHAT_KEY"],
+        azure_endpoint=os.environ["AOAI_CHAT_ENDPOINT"].rstrip("/"),
+        api_version=os.getenv("AOAI_CHAT_API_VERSION", "2025-01-01-preview"),
+    )
 
 def main():
     ap = argparse.ArgumentParser(description="Generate SQE1 MCQs using retrieved context")
@@ -50,29 +61,36 @@ def main():
     ap.add_argument("--n", type=int, default=5)
     ap.add_argument("--top-k", type=int, default=12)
     ap.add_argument("--temperature", type=float, default=0.2)
-    ap.add_argument("--chat-deploy", default=os.getenv("AOAI_CHAT_DEPLOYMENT", "gpt-4o-mini"))
-    ap.add_argument("--emb-deploy", default=os.getenv("AOAI_EMBEDDINGS_DEPLOYMENT", "text-embedding-3-large"))
+    ap.add_argument("--chat-deploy", default=os.getenv("AOAI_CHAT_DEPLOYMENT", "mcqgenerate"))
+    ap.add_argument("--emb-deploy", default=os.getenv("AOAI_EMBEDDINGS_DEPLOYMENT", "embed-sqe"))
     args = ap.parse_args()
 
-    cli = azure_client()
+    cli_emb = embed_client()
+    cli_chat = chat_client()
     store = LocalVectorStore()
 
-    # Query embedding
-    qvec = cli.embeddings.create(model=args.emb_deploy, input=[args.topic]).data[0].embedding
+    # 1) Embed the query/topic
+    qvec = cli_emb.embeddings.create(
+        model=args.emb_deploy,   # deployment name (not base model)
+        input=[args.topic]
+    ).data[0].embedding
+
+    # 2) Retrieve nearest chunks
     hits = store.search(args.subject, np.asarray(qvec, dtype=np.float32), top_k=args.top_k)
 
     if not hits:
         ctx = "No context found in the store for this subject."
-        refs = []
+        refs: List[str] = []
     else:
-        ctx_lines = []
+        ctx_lines: List[str] = []
         refs = []
         for i, h in enumerate(hits):
-            snippet = (h["text"] or "")[:1200]
+            snippet = (h.get("text") or "")[:1200]
             ctx_lines.append(f"[{i+1}] {h['source_path']}#p{h['page']}\n{snippet}")
             refs.append(f"{h['source_path']}#p{h['page']}")
         ctx = "\n\n".join(ctx_lines)
 
+    # 3) Build prompt and call chat model
     user_prompt = f"""Topic: {args.topic}
 Draft {args.n} MCQs. Use only what is relevant from CONTEXT.
 
@@ -80,14 +98,14 @@ CONTEXT:
 {ctx}
 """
 
-    comp = cli.chat.completions.create(
-        model=args.chat_deploy,
+    comp = cli_chat.chat.completions.create(
+        model=args.chat_deploy,               # deployment name (not base model)
         temperature=args.temperature,
         response_format={"type": "json_object"},
         messages=[
-            {"role":"system", "content": SYSTEM_PROMPT},
-            {"role":"user", "content": user_prompt}
-        ]
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt}
+        ],
     )
 
     content = comp.choices[0].message.content
@@ -101,10 +119,10 @@ CONTEXT:
         if not q.get("source_refs"):
             q["source_refs"] = refs
 
-    # Persist
+    # 4) Persist to local questions DB
     insert_mcq_batch(args.subject, args.topic, data)
 
-    # Write artifact
+    # 5) Write artifact for debugging/audit
     os.makedirs("ops/data", exist_ok=True)
     out_path = f"ops/data/mcqs_{int(time.time())}.json"
     with open(out_path, "w", encoding="utf-8") as f:
