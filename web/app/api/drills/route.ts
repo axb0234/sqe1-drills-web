@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   const seen = seenRes.rows.map((r: { question_id: number }) => Number(r.question_id));
 
   let whereClause = 'WHERE q.is_active = TRUE';
-  const params: any[] = [];
+  const params: Array<number | number[]> = [];
   let paramIndex = 1;
 
   if (typeof subject === 'number' || /^[0-9]+$/.test(String(subject))) {
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     );
 
     const values: string[] = [];
-    const insertParams: any[] = [sid];
+    const insertParams: Array<string | number> = [sid];
     let insertIdx = 2;
     sampleIds.forEach((qid: number, orderIdx: number) => {
       values.push(`($1, $${insertIdx}, $${insertIdx + 1})`);

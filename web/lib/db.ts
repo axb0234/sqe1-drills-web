@@ -1,4 +1,4 @@
-import { Pool, PoolClient, QueryResult } from 'pg';
+import { Pool, PoolClient, PoolConfig, QueryResult } from 'pg';
 
 type ResolvedConfig = {
   connectionString?: string;
@@ -75,7 +75,7 @@ function getPool(): Pool {
   if (pool) return pool;
 
   const { connectionString, host, port, database, user, password, ssl } = resolvedConfig;
-  const config: any = connectionString
+  const config: PoolConfig = connectionString
     ? { connectionString }
     : { host, port, database, user, password };
 
@@ -159,7 +159,7 @@ async function ensureSchema(): Promise<void> {
   await schemaPromise;
 }
 
-export async function query<T = any>(text: string, params?: any[]): Promise<QueryResult<T>> {
+export async function query<T = Record<string, unknown>>(text: string, params?: readonly unknown[]): Promise<QueryResult<T>> {
   await ensureSchema();
   return getPool().query<T>(text, params);
 }
