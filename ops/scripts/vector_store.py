@@ -4,7 +4,7 @@ import hashlib
 import uuid
 import os
 from dataclasses import dataclass
-from typing import Iterable, List
+from typing import Iterable, List, Dict
 
 import numpy as np
 from qdrant_client import QdrantClient
@@ -90,38 +90,42 @@ class QdrantVectorStore:
 
         vector = np.asarray(query_vec, dtype=np.float32).tolist()
         flt = qmodels.Filter(
-            must=[
-                qmodels.FieldCondition(
-                    key="subject",
-                    match=qmodels.MatchValue(value=subject),
-                )
-            ]
+            must=[qmodels.FieldCondition(key="subject", match=qmodels.MatchValue(value=subject))]
         )
 
-        results = self.client.search(
-            collection_name=self.collection,
-            vector=vector,
-            limit=top_k,
-            with_payload=True,
-            filter=flt,
-        )
-
-        hits: List[dict] = []
-        for hit in results:
-            payload = hit.payload or {}
-            hits.append(
-                {
-                    "id": str(hit.id),
-                    "score": float(hit.score) if hit.score is not None else 0.0,
-                    "subject": payload.get("subject"),
-                    "source_path": payload.get("source_path"),
-                    "page": payload.get("page"),
-                    "chunk_index": payload.get("chunk_index"),
-                    "text": payload.get("text"),
-                }
+        # Newer qdrant-client (expects query_vector / query_filter)
+        try:
+            results = self.client.search(
+                collection_name=self.collection,
+                query_vector=vector,
+                query_filter=flt,
+                limit=top_k,
+                with_payload=True,
+                with_vectors=False,
             )
-        return hits
+        # Older qdrant-client fallback (vector / filter)
+        except TypeError:
+            results = self.client.search(
+                collection_name=self.collection,
+                vector=vector,
+                filter=flt,
+                limit=top_k,
+                with_payload=True,
+            )
 
+        hits: List[Dict] = []
+        for hit in results or []:
+            pl = hit.payload or {}
+            hits.append({
+                "id": str(hit.id),
+                "score": float(hit.score) if getattr(hit, "score", None) is not None else 0.0,
+                "subject": pl.get("subject"),
+                "source_path": pl.get("source_path"),
+                "page": pl.get("page"),
+                "chunk_index": pl.get("chunk_index"),
+                "text": pl.get("text"),
+            })
+        return hits
 
 def emb_id(subject: str, source_path: str, page: int, chunk_idx: int) -> str:
     key = f"{subject}|{source_path}|{page}|{chunk_idx}"
