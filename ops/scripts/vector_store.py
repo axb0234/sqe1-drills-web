@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 import os
 from dataclasses import dataclass
 from typing import Iterable, List
@@ -123,9 +124,6 @@ class QdrantVectorStore:
 
 
 def emb_id(subject: str, source_path: str, page: int, chunk_idx: int) -> str:
-    h = hashlib.sha1()
-    h.update(subject.encode()); h.update(b"|")
-    h.update(source_path.encode()); h.update(b"|")
-    h.update(str(page).encode()); h.update(b"|")
-    h.update(str(chunk_idx).encode())
-    return h.hexdigest()
+    key = f"{subject}|{source_path}|{page}|{chunk_idx}"
+    # Stable, deterministic UUID from the key
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, key))
