@@ -37,7 +37,9 @@ Rules:
 - Use UK terminology.
 
 Return strictly:
-{"topics": ["..."]}"""
+{{"topics": ["..."]}}"""
+#            ^^      ^^  double braces so .format doesn't try to substitute
+
 
 # --- System prompts (per question) with one-shot examples and stricter rationale guidance ---
 
